@@ -1,0 +1,466 @@
+//+------------------------------------------------------------------+
+//|                                          oneDayX twoBar EMA Firm |
+//|        Copyright 2022, Rafael Santos, Santos Family Holdings LLC |
+//|                      https://www.santosfamilyholdingsllc.com.com |
+//+------------------------------------------------------------------+
+#property copyright "Copyright 2022, Rafael Santos, Santos Family Holdings LLC"
+#property link      "https://www.santosfamilyholdingsllc.com.com"
+#property version   "1.01"
+#property strict
+
+//+------------------------------------------------------------------+
+//|Version Detail: oneDayX twoBar EMA Firm v1.01                     |
+//|Trailing stop set at twoBar EMA +/- Spread*2                      |
+//|(Trails the EMA only to the profit side)                          |
+//|                                                                  |
+//+------------------------------------------------------------------+
+
+//Magic number allows you to specify trades that are related to this specific Expert Advisor
+#define MAGICMA 11292016
+// if(OrderSymbol()==Symbol() && OrderMagicNumber()==MAGICMA)
+
+input double Lotsize = 0.05; //Lot size
+//--- Price within a certain % of the EMA price. Allows you to have more control of the order trigger range
+input double max_twoBar_EMA_Set = 1.003; //Max twoBar EMA (Price within a % of the daily EMA price)
+input double min_twoBar_EMA_Set = 0.997; //Min twoBar EMA (Price within a % of the daily EMA price)
+input double max_daily_EMA_Set = 1.003; //Max Daily EMA (Price within a % of the daily EMA price)
+input double min_daily_EMA_Set = 0.997; //Min Daily EMA (Price within a % of the daily EMA price)
+input double max_Twoday_EMA_Set = 1.003; //Max TWO Day EMA (Price within a % of the daily EMA price)
+input double min_Twoday_EMA_Set = 0.997; //Min TWO EMA (Price within a % of the daily EMA price)
+input double max_midDay_EMA_Set = 1.003; //Max Mid Day EMA (Price within a % of the daily EMA price)
+input double min_midDay_EMA_Set = 0.997; //Min Mid Day EMA (Price within a % of the daily EMA price)
+//---5min EMA's
+input double max_hourAndHalf_fiveMin_EMA_Set = 1.0001;
+input double min_hourAndHalf_fiveMin_EMA_Set = 0.9999;
+input double max_threeHour_fiveMin_EMA_Set = 1.0001;
+input double min_threeHour_fiveMin_EMA_Set = 0.9999;
+input double max_fourHour_fiveMin_EMA_Set = 1.0001;
+input double min_fourHour_fiveMin_EMA_Set = 0.9999;
+input double max_midDay_fiveMin_EMA_Set = 1.0001;
+input double min_midDay_fiveMin_EMA_Set = 0.9999;
+input double max_oneDay_fiveMin_EMA_Set = 1.0001;
+input double min_oneDay_fiveMin_EMA_Set = 0.9999;
+input double max_twoDay_fiveMin_EMA_Set = 1.0001;
+input double min_twoDay_fiveMin_EMA_Set = 0.9999;
+input double max_weekly_fiveMin_EMA_Set = 1.0001;
+input double min_weekly_fiveMin_EMA_Set = 0.9999;
+input double min_eightHour_fiveMin_EMA_Set = 1.0001;
+input double max_eightHour_fiveMin_EMA_Set = 0.9999;
+input double max_hour_fiveMin_EMA_Set = 1.0001;
+input double min_hour_fiveMin_EMA_Set = 0.9999;
+input double max_halfHour_fiveMin_EMA_Set = 1.0001;
+input double min_halfHour_fiveMin_EMA_Set = 0.9999;
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+int OnInit()
+  {
+//--- Confirm Correct version is initialized
+   Print("You are now running Expert Advisor oneDayX twoBar EMA Firm v1.01.mq4 ");
+
+//---
+   return(INIT_SUCCEEDED);
+  }
+//+------------------------------------------------------------------+
+//| Get Open Order                                                   |
+//+------------------------------------------------------------------+
+int get_my_open_order()
+  {
+   int total=OrdersTotal();
+//Print("There are ",total,"open orders......");
+   if(total==0)
+      return(0);
+   for(int pos=0; pos<total; pos++)
+     {
+      if(OrderSelect(pos,SELECT_BY_POS)==false)
+        {
+         Print("get_my_open_order> OrderSelect Error: ", GetLastError());
+         continue;
+
+        }
+      int my_open_order_ticket = OrderTicket();
+
+      //Print("I am returning ticket #",my_open_order_ticket);
+      return(my_open_order_ticket);
+     }
+   return(0);
+  }
+//+------------------------------------------------------------------+
+//| Get order type by id                                               |
+//+------------------------------------------------------------------+
+int get_order_type_by_id(int order_id)
+  {
+   int order_type;
+   if(order_id<=0)
+      return(-100);
+   if(OrderSelect(order_id, SELECT_BY_TICKET)==true)
+     {
+      order_type=OrderType();
+      Print("The order type of order id #", order_id," is: ",order_type);
+      return(order_type);
+     }
+   else
+     {
+      Print("get_order_type_by_id> OrderSelect() returned error - ",GetLastError());
+      return -1;
+     }
+  }
+//+------------------------------------------------------------------+
+//|  Trailing stop                                                   |
+//+------------------------------------------------------------------+
+int  updated_existing_ticket_stop_loss(double NEW_STOP_LOSS_VALUE_FOR_OPEN_ORDER)
+  {
+
+   int open_ticket = get_my_open_order();
+   if(open_ticket <= 0)
+     {
+      return(-1);
+     }
+   else
+     {
+      //Print("I am updating stoploss on ticket #",open_ticket);
+      if(OrderSelect(open_ticket,SELECT_BY_TICKET) == false)
+        {
+         Print("updated_existing_ticket_stop_loss> Error in OrderSelect. Error code=",GetLastError());
+         return(-2);
+        }
+      else
+        {
+
+         double previous_stop_loss_value = OrderStopLoss();
+         //Print("existing ticket found. updating it from: ", previous_stop_loss_value," to: ", NEW_STOP_LOSS_VALUE_FOR_OPEN_ORDER);
+         if(OrderModify(OrderTicket(),OrderOpenPrice(), NEW_STOP_LOSS_VALUE_FOR_OPEN_ORDER,OrderTakeProfit(),OrderExpiration(),Blue) == true)
+           {
+            //Print("Order Ticket #", open_ticket," successfully updated from stop loss value of: ", previous_stop_loss_value,  " to stop loss value of: ", NEW_STOP_LOSS_VALUE_FOR_OPEN_ORDER);
+            return(100);
+           }
+         else
+           {
+            //Return true here because even though the update failed, we dont want to execute an order,
+            //Print("Error in OrderModify. Error code=",GetLastError());
+            return(-2);
+           }
+         return(-1);
+        }
+      return(-1);
+     }
+   return(-1);
+  }
+//+------------------------------------------------------------------+
+//| Get open order type                                                                 |
+//+------------------------------------------------------------------+
+int get_open_order_type()
+  {
+   return(get_order_type_by_id(get_my_open_order()));
+  }
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+void OnTick()
+  {
+//---Initialize local variables
+//Crypto 4Hour EMA's//
+   double twoBar_EMA = iMA(NULL,0,2,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of twoBar_EMA is ", twoBar_EMA);
+   double midDay_EMA = iMA(NULL,0,3,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of midDay_EMA is ", oneDay_EMA);
+   double oneDay_EMA = iMA(NULL,0,6,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of oneDay_EMA is ", oneDay_EMA);
+   double twoDay_EMA = iMA(NULL,0,12,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of twoDay_EMA is ", twoDay_EMA);
+   double weekly_EMA = iMA(NULL,0,42,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of weekly_EMA is ", weekly_EMA);
+   double monthly_EMA = iMA(NULL,0,180,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of monthly_EMA is ", monthly_EMA);
+   double threeMonth_EMA = iMA(NULL,0,540,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of threeMonth_EMA is ", threeMonth_EMA);
+   double sixMonth_EMA = iMA(NULL,0,1080,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of sixMonth_EMA is ", sixMonth_EMA);
+   double yearly_EMA = iMA(NULL,0,2160,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of yearly_EMA is ", yearly_EMA);
+
+//Crypto 5min EMA's//
+   double halfHour_fiveMin_EMA = iMA(NULL,PERIOD_M5,6,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of halfHour_fiveMin_EMA is ", halfHour_fiveMin_EMA);
+   double hour_fiveMin_EMA = iMA(NULL,PERIOD_M5,12,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of hour_fiveMin_EMA is ", hour_fiveMin_EMA);
+   double hourAndHalf_fiveMin_EMA = iMA(NULL,PERIOD_M5,18,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of hour&half_fiveMin_EMA is ", hour&half_fiveMin_EMA);
+   double threeHour_fiveMin_EMA = iMA(NULL,PERIOD_M5,36,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of threeHour_fiveMin_EMA is ", threeHour_fiveMin_EMA);
+   double fourHour_fiveMin_EMA = iMA(NULL,PERIOD_M5,48,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of fourHour_fiveMin_EMA is ", fourHour_fiveMin_EMA);
+   double eightHour_fiveMin_EMA = iMA(NULL,PERIOD_M5,72,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of eightHour_fiveMin_EMA is ", eightHour_fiveMin_EMA);
+   double midDay_fiveMin_EMA = iMA(NULL,PERIOD_M5,144,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of midDay_fiveMin_EMA is ", midDay_fiveMin_EMA);
+   double oneDay_fiveMin_EMA = iMA(NULL,PERIOD_M5,288,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of oneDay_fiveMin_EMA is ", oneDay_fiveMin_EMA);
+   double twoDay_fiveMin_EMA = iMA(NULL,PERIOD_M5,576,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of twoDay_fiveMin_EMA is ", twoDay_fiveMin_EMA);
+   double weekly_fiveMin_EMA = iMA(NULL,PERIOD_M5,2016,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of weekly_fiveMin_EMA is ", weekly_fiveMin_EMA);
+
+//Update trailing stop loss price for OPen BUY orders- Trails the EMA only to the profit side
+   int open_ticket = get_my_open_order();
+   if(open_ticket <= 0)
+     {
+      //Print("There are NO open BUY orders. get_my_open_order() returns", get_my_open_order());
+     }
+   else
+     {
+      if(OrderSelect(open_ticket,SELECT_BY_TICKET) == false)
+        {
+         Print("updated_existing_BUY_ticket_stop_loss> Error in OrderSelect. Error code=",GetLastError());
+        }
+      else
+        {
+         Print("Order select current order open ticket is:...........................",open_ticket);
+        }
+      if(get_open_order_type() == OP_BUY)
+        {
+         Print("Open ordfer is a Buy");
+         double current_TP_BUY = OrderStopLoss();
+         Print("Current TP for open BUY orders:...............",current_TP_BUY);
+         double trailing_stop_BUY = twoBar_EMA - (MathAbs(Ask - Bid)*2);
+         Print("Trailing TP:............",trailing_stop_BUY);
+
+         if(current_TP_BUY >= trailing_stop_BUY)
+            return;
+
+         //Print("I am calling the code to update stop loss to",trailing_stop_BUY);
+         if(updated_existing_ticket_stop_loss(trailing_stop_BUY) == 100)
+           {
+            Alert("Order trailing stop loss was updated. ");
+            return;
+           }
+        }
+     }
+
+//Update trailing stop loss price for Open SELL orders. Trails the EMA only to the profit side
+   if(open_ticket <= 0)
+     {
+      //Print("There are NO open SELL orders. get_my_open_order() returns", get_my_open_order());
+     }
+   else
+     {
+      if(OrderSelect(open_ticket,SELECT_BY_TICKET) == false)
+        {
+         Print("updated_existing_SELL_ticket_stop_loss> Error in OrderSelect. Error code=",GetLastError());
+        }
+      else
+        {
+         Print("Order select current order open ticket is:...........................",open_ticket);
+        }
+
+      if(get_open_order_type() == OP_SELL)
+        {
+         Print("Open order is a SELL");
+         double current_TP_SELL = OrderStopLoss();
+         Print("Current TP For open Sell Order:...............",current_TP_SELL);
+         double trailing_stop_SELL = twoBar_EMA + (MathAbs(Ask - Bid)*2);
+         Print("Trailing TP For open Sell Order:...............",trailing_stop_SELL);
+
+         //I want the lesser of the two < does not include the stop loss at all because the initial stop loss is zero
+         if(current_TP_SELL < trailing_stop_SELL) //TRUE
+            return;
+         Print("Did not return current tp",current_TP_SELL," should be greater or equal to trailing stop SELL:",trailing_stop_SELL);
+
+         if(updated_existing_ticket_stop_loss(trailing_stop_SELL) == 100)
+           {
+            Print("Order trailing stop loss was updated. ");
+            return;
+           }
+        }
+     }
+
+//--- Price within a certain % of the EMA price. Allows you to have more control of the order trigger range
+//---4hour EMA's
+   double max_daily_EMA = oneDay_EMA*(double)max_daily_EMA_Set;
+   double min_daily_EMA = oneDay_EMA*(double)min_daily_EMA_Set;
+   double max_Twoday_EMA = twoDay_EMA*(double)max_Twoday_EMA_Set;
+   double min_Twoday_EMA = twoDay_EMA*(double)min_Twoday_EMA_Set;
+   double min_midDay_EMA = midDay_EMA*(double)min_midDay_EMA_Set;
+   double max_midDay_EMA = midDay_EMA*(double)max_midDay_EMA_Set;
+   double min_twoBar_EMA = twoBar_EMA*(double)min_twoBar_EMA_Set;
+   double max_twoBar_EMA = twoBar_EMA*(double)max_twoBar_EMA_Set;
+//---5min EMA's
+   double max_halfHour_fiveMin_EMA = halfHour_fiveMin_EMA* (double)max_halfHour_fiveMin_EMA_Set;
+   double min_halfHour_fiveMin_EMA = halfHour_fiveMin_EMA* (double)min_halfHour_fiveMin_EMA_Set;
+   double max_hour_fiveMin_EMA = hour_fiveMin_EMA* (double)max_hour_fiveMin_EMA_Set;
+   double min_hour_fiveMin_EMA = hour_fiveMin_EMA* (double)min_hour_fiveMin_EMA_Set;
+   double max_hourAndHalf_fiveMin_EMA = hourAndHalf_fiveMin_EMA* (double)max_hourAndHalf_fiveMin_EMA_Set;
+   double min_hourAndHalf_fiveMin_EMA = hourAndHalf_fiveMin_EMA* (double)min_hourAndHalf_fiveMin_EMA_Set;
+   double max_threeHour_fiveMin_EMA = threeHour_fiveMin_EMA* (double)max_threeHour_fiveMin_EMA_Set;
+   double min_threeHour_fiveMin_EMA = threeHour_fiveMin_EMA* (double)min_threeHour_fiveMin_EMA_Set;
+   double max_fourHour_fiveMin_EMA = fourHour_fiveMin_EMA* (double)max_fourHour_fiveMin_EMA_Set;
+   double min_fourHour_fiveMin_EMA = fourHour_fiveMin_EMA* (double)min_fourHour_fiveMin_EMA_Set;
+   double min_eightHour_fiveMin_EMA = eightHour_fiveMin_EMA* (double)min_eightHour_fiveMin_EMA_Set;
+   double max_eightHour_fiveMin_EMA = eightHour_fiveMin_EMA* (double)max_eightHour_fiveMin_EMA_Set;
+   double max_midDay_fiveMin_EMA = midDay_fiveMin_EMA* (double)max_midDay_fiveMin_EMA_Set;
+   double min_midDay_fiveMin_EMA = midDay_fiveMin_EMA* (double)min_midDay_fiveMin_EMA_Set;
+   double max_oneDay_fiveMin_EMA = oneDay_fiveMin_EMA* (double)max_oneDay_fiveMin_EMA_Set;
+   double min_oneDay_fiveMin_EMA = oneDay_fiveMin_EMA* (double)min_oneDay_fiveMin_EMA_Set;
+   double max_twoDay_fiveMin_EMA = twoDay_fiveMin_EMA* (double)max_twoDay_fiveMin_EMA_Set;
+   double min_twoDay_fiveMin_EMA = twoDay_fiveMin_EMA* (double)min_twoDay_fiveMin_EMA_Set;
+   double max_weekly_fiveMin_EMA = weekly_fiveMin_EMA* (double)max_weekly_fiveMin_EMA_Set;
+   double min_weekly_fiveMin_EMA = weekly_fiveMin_EMA* (double)min_weekly_fiveMin_EMA_Set;
+//---BUY Signals
+   bool oneDay_EMA_BUY_Signal = (min_daily_EMA > max_Twoday_EMA)
+                                && (min_midDay_EMA > max_Twoday_EMA)///change to one day and test******
+                                && (min_twoBar_EMA > max_midDay_EMA)
+                                && (weekly_EMA < min_midDay_EMA)
+                                && (Open[0] < Ask);
+//---Buy Signal condition check
+   if(min_daily_EMA > max_Twoday_EMA)
+     {
+      Print("Minimum daily EMA is above Max two day EMA, BUY Condition 1 is met");
+     }
+   else
+     {
+      Print("BUY Condition 1 is NOT met");
+     }
+   if(min_midDay_EMA > max_Twoday_EMA)
+     {
+      Print("Minimum mid day EMA is above max  daily EMA, BUY Condition 2 is met");
+     }
+   else
+     {
+      Print("BUY Condition 2 is Not met");
+     }
+   if(min_twoBar_EMA > max_midDay_EMA)
+     {
+      Print("Minimum two bar EMA is above max mid day EMA , BUY Condition 3 is met");
+     }
+   else
+     {
+      Print("BUY Condition 3 is Not met");
+     }
+   if(weekly_EMA < min_midDay_EMA)
+     {
+      Print("Weekley EMA is below the minimum mid day EMA, BUY Condition 4 is met");
+     }
+   else
+     {
+      Print("BUY Condition 4 is Not met");
+     }
+   if(Open[0] < Ask)
+     {
+      Print("The open price is below the current ask price, BUY Condition 5 is met");
+     }
+   else
+     {
+      Print("BUY Condition 5 is Not met");
+     }
+
+   if(get_my_open_order() <= 0)
+     {
+      if(min_daily_EMA > max_Twoday_EMA
+         && min_midDay_EMA > max_Twoday_EMA
+         && min_twoBar_EMA > max_midDay_EMA
+         && weekly_EMA < min_midDay_EMA
+         && Open[0] < Ask)
+        {
+         Alert("All BUY conditioins are met, Sell trade should triger");
+         Print("All BUY conditioins are met, Sell trade should triger");
+        }
+     }
+
+//---SELL Signal
+   bool oneDay_EMA_SELL_Signal = (max_daily_EMA < min_Twoday_EMA)
+                                 && (max_midDay_EMA < min_daily_EMA)
+                                 && (max_twoBar_EMA < min_midDay_EMA)
+                                 && (weekly_EMA > max_midDay_EMA)
+                                 && (Open[0] > Bid);
+//---SELL Signal condition check
+   if(max_daily_EMA < min_Twoday_EMA)
+     {
+      Print("Max daily EMA is below Minimum two day EMA, SELL Condition 1 is met");
+     }
+   else
+     {
+      Print("SELL Condition 1 is Not met");
+     }
+   if(max_midDay_EMA < min_daily_EMA)
+     {
+      Print("Max mid day EMA is below minimum daily EMA, SELL Condition 2 is met");
+     }
+   else
+     {
+      Print("SELL Condition 2 is Not met");
+     }
+   if(max_twoBar_EMA < min_midDay_EMA)
+     {
+      Print("Max two bar EMA is below minimum mid day EMA , SELL Condition 3 is met");
+     }
+   else
+     {
+      Print("SELL Condition 3 is Not met");
+     }
+   if(weekly_EMA> max_midDay_EMA)
+     {
+      Print("Weekley EMA is above the max mid day EMA, SELL Condition 4 is met");
+     }
+   else
+     {
+      Print("SELL Condition 4 is Not met");
+     }
+   if(Open[0] > Bid)
+     {
+      Print("The open price is above the current bid price, SELL Condition 5 is met");
+     }
+   else
+     {
+      Print("SELL Condition 5 is Not met");
+     }
+
+   if(get_my_open_order() <= 0)
+     {
+      if(max_daily_EMA < min_Twoday_EMA
+         && max_midDay_EMA < min_daily_EMA
+         && min_midDay_EMA > max_twoBar_EMA
+         && weekly_EMA > max_midDay_EMA
+         && Open[0] > Bid)
+        {
+         Alert("All Sell conditions are met, Sell trade should triger");
+         Print("All Sell conditions are met, Sell trade should triger");
+        }
+     }
+
+//---bool oneDay_EMA_BUY_CLOSE_Signal = (midDay_EMA <= max_daily_EMA); //&& () &&();
+//---bool oneDay_EMA_SELL_CLOSE_Signal = (midDay_EMA >= min_daily_EMA); //&& () &&();
+
+//---Seting initial stop loss
+   double trailing_stop_SELL_set = twoBar_EMA + (MathAbs(Ask - Bid)*2);
+   double trailing_stop_BUY_set = twoBar_EMA - (MathAbs(Ask - Bid)*2);
+
+//---If no open orders then looks for conditions to place one
+   if(get_my_open_order() <= 0)
+     {
+      // Print("there are no open orders",get_my_open_order(),"I am going to run logic to look for conditions to place one....");
+      //---Look for signal to place BUY trade
+      if(oneDay_EMA_BUY_Signal)
+        {
+         Alert("Initiating BUY Order at Ask Price of", Ask);
+         int BUY_order = OrderSend(NULL,OP_BUY,Lotsize,Ask,0,trailing_stop_BUY_set,NULL,"Make this a winner",MAGICMA,0,Blue);
+         if(BUY_order==true)
+           {
+            Alert("Buy order placed at ask price of: ",Ask);
+           }
+        }
+      //---Look for signal to place SELL trade
+      if(oneDay_EMA_SELL_Signal)
+        {
+         Alert("Initiating SELL Order at BID Price of", Bid);
+         int SELL_order = OrderSend(NULL,OP_SELL,Lotsize,Bid,0,trailing_stop_SELL_set,NULL,"Make this a winner",MAGICMA,0,Red);
+         if(SELL_order==true)
+           {
+            Alert("Sell order placed at bid price of: ",Bid);
+           }
+        }
+     }
+  }
+//+------------------------------------------------------------------+
+//|Copyright 2022, Rafael Santos, Santos Family Holdings LLC         |
+//+------------------------------------------------------------------+

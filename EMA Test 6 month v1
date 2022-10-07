@@ -1,0 +1,223 @@
+//+------------------------------------------------------------------+
+//|                                                    EMA Test1.mq4 |
+//|                                                    Rafael Santos |
+//|                                           https://www.santos.com |
+//+------------------------------------------------------------------+
+#property copyright "Rafael Santos"
+#property link      "https://www.santos.com"
+#property version   "2.00"
+#property strict
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int OnInit()
+  {
+//---
+
+
+
+
+//Print("I am running the init function");
+//---
+   return(INIT_SUCCEEDED);
+  }
+//+------------------------------------------------------------------+
+//| Expert deinitialization function                                 |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+//---
+
+//Print("I am running the deinit function");
+
+  }
+//+------------------------------------------------------------------+
+//| Expert tick function                                             |
+//+------------------------------------------------------------------+
+void OnTick()
+  {
+//---
+   double weekly4hour_RSI = iRSI(NULL,0,42,PRICE_CLOSE,0);
+   double currentClose_price = Close[0];
+   double lastClose_price = Close [1];
+
+//Print("I am running the ontick function");
+
+//XRP 4Hour EMA's//
+   double oneDay_EMA = iMA(NULL,0,6,0,MODE_EMA,PRICE_CLOSE,0);
+   Print("The value of oneDay_EMA is ", oneDay_EMA);
+   double twoDay_EMA = iMA(NULL,0,12,0,MODE_EMA,PRICE_CLOSE,0);
+   Print("The value of twoDay_EMA is ", twoDay_EMA);
+   double weekly_EMA = iMA(NULL,0,42,0,MODE_EMA,PRICE_CLOSE,0);
+   Print("The value of weekly_EMA is ", weekly_EMA);
+   double monthly_EMA = iMA(NULL,0,180,0,MODE_EMA,PRICE_CLOSE,0);
+   Print("The value of monthly_EMA is ", monthly_EMA);
+   double threeMonth_EMA = iMA(NULL,0,540,0,MODE_EMA,PRICE_CLOSE,0);
+   Print("The value of threeMonth_EMA is ", threeMonth_EMA);
+   double sixMonth_EMA = iMA(NULL,0,1080,0,MODE_EMA,PRICE_CLOSE,0);
+   Print("The value of sixMonth_EMA is ", sixMonth_EMA);
+   double yearly_EMA = iMA(NULL,0,2160,0,MODE_EMA,PRICE_CLOSE,0);
+   Print("The value of yearly_EMA is ", yearly_EMA);
+
+
+//current price
+   MqlTick current_price;
+   if(!SymbolInfoTick(_Symbol, current_price))
+     {
+      Print("No price error#",GetLastError());
+      return;
+     }
+   else
+     {
+      Print(current_price.time,": Bid = ",current_price.bid," Ask = ",current_price.ask,"  Volume = ",current_price.volume);
+     }
+
+   double trailing_stop_BUY = weekly_EMA - (MathAbs(current_price.ask - current_price.bid)*2);
+  
+
+
+
+   double max_weekly_EMA = weekly_EMA*(double)1.01;
+   double min_weekly_EMA = weekly_EMA*(double)0.99;
+   bool weeklyEMAsameSixMonthEMA_BUY = (sixMonth_EMA < max_weekly_EMA && sixMonth_EMA > min_weekly_EMA && oneDay_EMA > twoDay_EMA && oneDay_EMA > weekly_EMA && twoDay_EMA > weekly_EMA);
+   if(weeklyEMAsameSixMonthEMA_BUY)
+     {
+      Print("Initiating BUY Order at Ask Price of" , current_price.ask);
+      int BUY_order = OrderSend(NULL,OP_BUY,1.2,current_price.ask,0,trailing_stop_BUY,NULL,NULL,0,0,NULL);
+      if(BUY_order<0)
+        {
+         Print("BUY order failed with error #",GetLastError());
+        }
+      else
+        {
+         Print("BUY order placed successfully");
+         Print("The trailing stop for BUY orders is", trailing_stop_BUY);
+        }
+
+
+
+      if(oneDay_EMA < twoDay_EMA)
+        {
+         bool dailyEMAcross_TP = OrderClose(BUY_order,0.4,0,Green);
+         if(dailyEMAcross_TP != TRUE)
+
+           {
+            Print("dailyEMAcross_TP to close with error #",GetLastError());
+           }
+         else
+           {
+            Print("dailyEMAcross_TP closed successfully");
+           }
+
+        }
+
+      if(currentClose_price < weekly_EMA)
+        {
+         bool closeBelowWeeklyEMA_TP = OrderClose(BUY_order,0.4,0,Green);
+         if(closeBelowWeeklyEMA_TP != TRUE)
+
+           {
+            Print("closeBelowWeeklyEMA_TP failed to close with error #",GetLastError());
+           }
+         else
+           {
+            Print("closeBelowWeeklyEMA_TP closed successfully");
+           }
+
+        }
+
+      Print("The weekly 4 Hour RSI is", weekly4hour_RSI);
+      if(weekly4hour_RSI > 70)
+        {
+         bool RIS_overBought_TP = OrderClose(BUY_order,0.4,0,Green);
+         if(RIS_overBought_TP != TRUE)
+
+           {
+            Print("RIS_overBought_TP failed to close with error #",GetLastError());
+           }
+         else
+           {
+            Print("RIS_overBought_TP closed successfully");
+           }
+
+        }
+
+     }
+
+
+
+ double trailing_stop_SELL = weekly_EMA + (MathAbs(current_price.ask - current_price.bid)*2);  
+
+   bool weeklyEMAsameSixMonthEMA_SELL = (sixMonth_EMA < max_weekly_EMA && sixMonth_EMA > min_weekly_EMA && oneDay_EMA < twoDay_EMA && oneDay_EMA < weekly_EMA && twoDay_EMA < weekly_EMA);
+   if(weeklyEMAsameSixMonthEMA_SELL)
+     {
+      Print("initiating SELL Order at BID Price", current_price.bid);
+      int SELL_order = OrderSend(NULL,OP_SELL,1.2,current_price.bid,0,trailing_stop_SELL,NULL,NULL,0,0,NULL);
+      if(SELL_order<0)
+        {
+         Print("SELL order failed with error #",GetLastError());
+        }
+      else
+        {
+         Print("SELL order placed successfully");
+        }
+
+
+
+      if(oneDay_EMA > twoDay_EMA)
+        {
+         bool dailyEMAcross_TP = OrderClose(SELL_order,0.4,0,Red);
+         if(dailyEMAcross_TP != TRUE)
+
+           {
+            Print("dailyEMAcross_TP to close with error #",GetLastError());
+           }
+         else
+           {
+            Print("dailyEMAcross_TP closed successfully");
+           }
+
+        }
+
+      if(currentClose_price > weekly_EMA)
+        {
+         bool closeAboveWeeklyEMA_TP = OrderClose(SELL_order,0.4,0,Red);
+         if(closeAboveWeeklyEMA_TP != TRUE)
+
+           {
+            Print("closeBelowWeeklyEMA_TP failed to close with error #",GetLastError());
+           }
+         else
+           {
+            Print("closeBelowWeeklyEMA_TP closed successfully");
+           }
+
+        }
+
+      Print("The weekly 4 Hour RSI is", weekly4hour_RSI);
+      if(weekly4hour_RSI < 30)
+        {
+         bool RIS_overSold_TP = OrderClose(SELL_order,0.4,0,Red);
+         if(RIS_overSold_TP != TRUE)
+
+           {
+            Print("RIS_overSold_TP failed to close with error #",GetLastError());
+           }
+         else
+           {
+            Print("RIS_overSold_TP closed successfully");
+           }
+
+        }
+
+     }
+
+  }
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+

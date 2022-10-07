@@ -1,0 +1,528 @@
+//+------------------------------------------------------------------+
+//|                                           SweetspotEMA v1.01.mq4 |
+//|                       Copyright 2022, Santos Family Holdings LLC |
+//|                           http://www.SantosFamilyHoldingsLLC.com |
+//+------------------------------------------------------------------+
+#property copyright   "2022, Santos Family Holdings LLC"
+#property link        "http://www.SantosFamilyHoldingsLLC.com"
+#property description "SweetspotEMA v1.01.mq4 expert advisor"
+//+------------------------------------------------------------------+
+//|Version Details:                                                  |
+//|Buy & Sell, only one open order, trailing stop loss twoDayEMA     |
+//|Plus spread*2, Trails the EMA only towards profit side.           |
+//|1 Take profit(Order Close) at RSI overbought or                   |
+//|over sold. Tighten/loosen EMA Trigger range within %,             |
+//|one trade per pre-determinde (set at 30min/1800secs) time period  |
+//| If RSI is overbought-Dont Buy if Oversold dont sell              |
+//+------------------------------------------------------------------+
+
+//Magic number allows you to specify trades that are related to this specific Expert Advisor
+#define MAGICMA 41152230
+
+//--- Inputs
+input double Lots          =0.1; //Minimum lot size
+input double MaximumRisk   =0.03; //Max risk per trade % of total account balance
+input double DecreaseFactor=3;  //Decrease factor for Lot optimization
+
+//--- Price within a certain % of the EMA price. Allows you to have more control of the order trigger range
+input double max_daily_EMA_Set = 1.002; //Max Daily EMA (Price within a % of the daily EMA price)
+input double min_daily_EMA_Set = 0.998; //Min Daily EMA (Price within a % of the daily EMA price)
+input double max_Twoday_EMA_Set = 1.002; //Max TWO Day EMA (Price within a % of the daily EMA price)
+input double min_Twoday_EMA_Set = 0.998; //Min TWO EMA (Price within a % of the daily EMA price)
+input double max_midDay_EMA_Set = 1.002; //Max Mid Day EMA (Price within a % of the daily EMA price)
+input double min_midDay_EMA_Set = 0.998; //Min Mid Day EMA (Price within a % of the daily EMA price)
+
+//---RSI levels inputs
+input double RSIoverBought = 73; //RSI over bought level
+input double RSIoverSOLD = 27; //RSI over sold level
+input double waitTillNextOrder = 1800; //Seconds
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+int OnInit()
+  {
+//--- Confirm Correct version is initialized
+   Print("You are now running Expert Advisor SweetspotEMA v1.01.mq4");
+
+//---
+   return(INIT_SUCCEEDED);
+  }
+//+------------------------------------------------------------------+
+//| Trailing Stop                                                    |
+//+------------------------------------------------------------------+
+int  updated_existing_ticket_stop_loss(double NEW_STOP_LOSS_VALUE_FOR_OPEN_ORDER)
+  {
+
+   int open_ticket = get_my_open_order();
+   if(open_ticket <= 0)
+     {
+      return(-1);
+     }
+   else
+     {
+      //Print("I am updating stoploss on ticket #",open_ticket);
+      if(OrderSelect(open_ticket,SELECT_BY_TICKET) == false)
+        {
+         Print("updated_existing_ticket_stop_loss> Error in OrderSelect. Error code=",GetLastError());
+         return(-2);
+        }
+      else
+        {
+
+         double previous_stop_loss_value = OrderStopLoss();
+         //Print("existing ticket found. updating it from: ", previous_stop_loss_value," to: ", NEW_STOP_LOSS_VALUE_FOR_OPEN_ORDER);
+         if(OrderModify(OrderTicket(),OrderOpenPrice(), NEW_STOP_LOSS_VALUE_FOR_OPEN_ORDER,OrderTakeProfit(),OrderExpiration(),Blue) == true)
+           {
+            //Print("Order Ticket #", open_ticket," successfully updated from stop loss value of: ", previous_stop_loss_value,  " to stop loss value of: ", NEW_STOP_LOSS_VALUE_FOR_OPEN_ORDER);
+            return(100);
+           }
+         else
+           {
+            //we return true here because even though the update failed, we dont want to execute an order (we have one updated we just couldnt update it)
+            //Print("Error in OrderModify. Error code=",GetLastError());
+            return(-2);
+           }
+         return(-1);
+        }
+      return(-1);
+     }
+   return(-1);
+  }
+//+------------------------------------------------------------------+
+//|   Order Type                                                     |
+//+------------------------------------------------------------------+
+int get_open_order_type()
+  {
+   return(get_order_type_by_id(get_my_open_order()));
+  }
+//+------------------------------------------------------------------+
+//|   Order Type by ID                                               |
+//+------------------------------------------------------------------+
+int get_order_type_by_id(int order_id)
+  {
+   int order_type;
+   if(order_id<=0)
+      return(-100);
+   if(OrderSelect(order_id, SELECT_BY_TICKET)==true)
+     {
+      order_type=OrderType();
+      Print("The order type of order id #", order_id," is: ",order_type);
+      return(order_type);
+     }
+   else
+     {
+      Print("get_order_type_by_id> OrderSelect() returned error - ",GetLastError());
+      return -1;
+     }
+  }
+//+------------------------------------------------------------------+
+//|Check for previous order close time                               |
+//+------------------------------------------------------------------+
+datetime checkPreviousCloseTime()
+  {
+   for(int i =0; i < OrdersHistoryTotal(); i++)
+     {
+      if(OrderSelect(i,SELECT_BY_POS,MODE_HISTORY)==true)
+        {
+         datetime iOrderCloseTime=OrderCloseTime();
+         if(iOrderCloseTime>0)
+            Print("The previous order closed at ", iOrderCloseTime);
+        }
+     }
+   return iOrderCloseTime;
+  }
+//+------------------------------------------------------------------+
+//|Check for previous order Open time                               |
+//+------------------------------------------------------------------+
+datetime checkPreviousOpenTime()
+  {
+   for(int i =0; i < OrdersHistoryTotal(); i++)
+     {
+      if(OrderSelect(i,SELECT_BY_POS,MODE_HISTORY)==true)
+        {
+         datetime iOrderOpenTime=OrderOpenTime();
+         if(iOrderOpenTime>0)
+            Print("The previous order opened at  ", iOrderOpenTime);
+        }
+     }
+   return iOrderOpenTime;
+  }
+//+------------------------------------------------------------------+
+//| Wait till next order in seconds ---NEED TO TEST THIS FUNCTION                                                 |
+//+------------------------------------------------------------------+
+datetime wait__till_next_order_inSeconds()
+  {
+   datetime lapsedTime=TimeSeconds(checkPreviousOpenTime());
+   datetime minTimeSinceLastOpenOrder= waitTillNextOrder;
+   datetime timeLeft = (minTimeSinceLastOpenOrder - lapsedTime);
+   if(timeLeft==0)
+     {
+      Print("The time since last open trade is up, we are now looking for open order conditions");
+     }
+   return(timeLeft);
+  }
+//+------------------------------------------------------------------+
+//| Calculate Open Positions                                         |
+//+------------------------------------------------------------------+
+//Takes a string "currency symbol" gives you a number interger for current open orders for that symbol
+int CalculateCurrentOrders(string symbol)
+  {
+//---initial assignemnt of buys and sells to 0
+   int buys=0,sells=0;
+
+   Print("calculating current orders for symbol:", symbol);
+//---Looping over the orders total function to find and increment the open buys and sells accordingly
+   for(int i=0; i<OrdersTotal(); i++)
+     {
+      //If there are no open orders in position i break, if there are open orders continues
+      if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES)==false)
+         break;
+      Print("No current open orders for symbol:", symbol,"i is =",i);
+      //Checks for the correct symbol and Magic number then checks if the open order its a BUY or sell and it increments it accordingly
+      if(OrderSymbol()==Symbol() && OrderMagicNumber()==MAGICMA)
+        {
+         if(OrderType()==OP_BUY)
+            buys++;
+         if(OrderType()==OP_SELL)
+            sells++;
+        }
+     }
+//--- return orders volume
+   Print("Number of open BUY orders is:", buys,"and open SELL orders is =",sells);
+   if(buys>0)
+      return(buys);
+   else
+      return(-sells);
+  }
+//+------------------------------------------------------------------+
+//| Get open order ticket number                                     |
+//+------------------------------------------------------------------+
+int get_my_open_order()
+  {
+   int total=OrdersTotal();
+   if(total==0)
+      return(0);
+   for(int i=0; i<total; i++)
+     {
+      if(OrderSelect(i,SELECT_BY_POS)==false)
+        {
+         Print("get_my_open_order> OrderSelect Error: ", GetLastError());
+         continue;
+        }
+      int my_open_order_ticket = OrderTicket();
+      //Print("I am returning ticket #",my_open_order_ticket);
+      return(my_open_order_ticket);
+     }
+   return(0);
+  }
+//+------------------------------------------------------------------+
+//| Calculate optimal lot size                                       |
+//+------------------------------------------------------------------+
+double LotsOptimized()
+  {
+//Initializing local variables
+   double lot=Lots;                  //Uses the gloabal input variable "Lots" and assigns it to a local variable "lot"
+   int    orders=HistoryTotal();     // history orders total
+   int    losses=0;                  // number of losses orders without a break
+   int    wins=0;                    // number of win orders without a break
+
+//--- Assign lot size by taking the accounts free margin times the "MaximumRisk" gobal input variable and dividing by 1000.01
+   lot=NormalizeDouble(AccountFreeMargin()*MaximumRisk/1000.0,1);
+   Print("The current Lot size before optimization is =",lot);
+//--- Calcuulate number of losses orders without a break only runs if you have a "DecreaseFactor" greater than 0 set in the global input variable
+   if(DecreaseFactor>0)
+     {
+      //Loops over the orders variable (local variable calls HistoryTotal())esentialy Looping over order history.
+      for(int i=orders-1; i>=0; i--)
+        {
+         //checks if there are any trades using Orderselect() select by position i in history mode
+         if(OrderSelect(i,SELECT_BY_POS,MODE_HISTORY)==false)
+           {
+            Print("Error in history! Code did not read any orders in order history, should be i=orders-1 it is i=",i);
+            break;
+           }
+         //Checks for the correct order symbol and order type, FYI OP_BUY==0 OP_SELL==1 so anything other than a BUY or SELL it will continue to check next order
+         if(OrderSymbol()!=Symbol() || OrderType()>OP_SELL)
+            continue;
+         //---checks if the order closed in the profit, if so it it increments the local variable "wins" and breaks and does not change the lot size
+         if(OrderProfit()>0)
+            wins++;
+         break;
+         //---checks is the order clsoed with a loss and increments the number of the local variable "losses"
+         if(OrderProfit()<0)
+            losses++;
+         Print("The current number of losses in order history is =",losses,"Number of wins is =",wins);
+        }
+      //if losses is greater than 1 adjust the lot size by taking the current lot size and subtracting lot* number of losses and dividing by Decrease factor
+      if(losses>1)
+         //--- Print check before lot optimization
+         Print("there are more than one losses in trade history =",losses,"current lot size is=",lot,"this will be adjusted on the next line of code");
+      lot=NormalizeDouble(lot-lot*losses/DecreaseFactor,1);
+      //--- Print check after Lot optimization
+      Print("The lot size has been optimized, the new lot size is =",lot);
+     }
+//--- if new calculated lot size is greater than 0.1 adjust the lot to 0.1, if less than 0.1 return the new lot size return new lot size (Global variable input double Lots=0.1;)
+   if(lot<Lots)
+      lot=Lots;
+   return(lot);
+//Print check after function run
+   Print("The new Lot size returned by function is=",lot);
+  }
+//+------------------------------------------------------------------+
+//| Check for open order conditions                                  |
+//+------------------------------------------------------------------+
+void CheckForOpen()
+  {
+   int total=OrdersTotal();
+   if(total>=1)
+      return;
+//Initializing local variables
+   int    order;
+//--- Crypto 4Hour EMA's//
+   double midDay_EMA = iMA(NULL,0,3,0,MODE_EMA,PRICE_CLOSE,0);
+   double oneDay_EMA = iMA(NULL,0,6,0,MODE_EMA,PRICE_CLOSE,0);
+   double twoDay_EMA = iMA(NULL,0,12,0,MODE_EMA,PRICE_CLOSE,0);
+   double weekly_EMA = iMA(NULL,0,42,0,MODE_EMA,PRICE_CLOSE,0);
+   double monthly_EMA = iMA(NULL,0,180,0,MODE_EMA,PRICE_CLOSE,0);
+   double threeMonth_EMA = iMA(NULL,0,540,0,MODE_EMA,PRICE_CLOSE,0);
+   double sixMonth_EMA = iMA(NULL,0,1080,0,MODE_EMA,PRICE_CLOSE,0);
+   double yearly_EMA = iMA(NULL,0,2160,0,MODE_EMA,PRICE_CLOSE,0);
+
+//--- Price within a certain % of the EMA price. Allows you to have more control of the order trigger range
+   double max_daily_EMA = oneDay_EMA*(double)max_daily_EMA_Set; //1.003%
+   double min_daily_EMA = oneDay_EMA*(double)min_daily_EMA_Set; //99.7%
+   double max_Twoday_EMA = twoDay_EMA*(double)max_Twoday_EMA_Set; //1.003%
+   double min_Twoday_EMA = twoDay_EMA*(double)min_Twoday_EMA_Set; //99.7%
+   double min_midDay_EMA = midDay_EMA*(double)min_midDay_EMA_Set; //99.7%
+   double max_midDay_EMA = midDay_EMA*(double)max_midDay_EMA_Set; //1.003%
+
+//--- Weekly 4 hour RSI
+   double weekly4hour_RSI = iRSI(NULL,0,42,PRICE_CLOSE,0);
+
+//--- Goes trading only for first tiks of new bar
+//if(Volume[0]>1)
+// return;
+
+   datetime lapsedTime=TimeSeconds(checkPreviousOpenTime());
+   datetime minTimeSinceLastOpenOrder= waitTillNextOrder;
+   datetime timeLeft = (minTimeSinceLastOpenOrder - lapsedTime);
+   if(timeLeft==0)
+     {
+      Print("Not enough time has passed since last order. The current time that has lapsed since last open order is:",lapsedTime,"The time left till order condition search is:",timeLeft);
+     }
+   else
+     {
+      //--- buy conditions
+      if(get_my_open_order() <= 0)
+        {
+         if(weekly4hour_RSI > RSIoverBought)
+           {
+            Print("Weekly RSI is over bought, buying conditions not met. No Buy Order Placed");
+           }
+         else
+           {
+            if(min_Twoday_EMA > weekly_EMA && min_daily_EMA > max_Twoday_EMA && min_midDay_EMA > max_daily_EMA && Ask < max_daily_EMA && Ask > max_Twoday_EMA)//might add the 2bar ema above the mid_day EMA
+              {
+               order=OrderSend(Symbol(),OP_BUY,LotsOptimized(),Ask,3,0,0,"Make this a winner",MAGICMA,0,Blue);
+               return;
+              }
+           }
+         if(weekly4hour_RSI > RSIoverSOLD)
+           {
+            Print("Weekly RSI is over Sold, selling conditions not met. No sell Order Placed");
+           }
+         else
+           {
+            if(max_Twoday_EMA < weekly_EMA && max_daily_EMA < min_Twoday_EMA && max_midDay_EMA < min_daily_EMA && Bid > min_daily_EMA && Bid < min_Twoday_EMA)
+              {
+               double trailing_stop_SELL_set = twoDay_EMA + (MathAbs(Ask - Bid)*2);
+               order=OrderSend(Symbol(),OP_SELL,LotsOptimized(),Bid,3,trailing_stop_SELL_set,0,"Make this a winner",MAGICMA,0,Red);
+               return;
+              }
+           }
+        }
+     }
+  }
+//+------------------------------------------------------------------+
+//| Check for close order conditions                                 |
+//+------------------------------------------------------------------+
+void CheckForClose()
+  {
+//--- Crypto 4Hour EMA's//
+   double midDay_EMA = iMA(NULL,0,3,0,MODE_EMA,PRICE_CLOSE,0);
+   double oneDay_EMA = iMA(NULL,0,6,0,MODE_EMA,PRICE_CLOSE,0);
+   double twoDay_EMA = iMA(NULL,0,12,0,MODE_EMA,PRICE_CLOSE,0);
+   double weekly_EMA = iMA(NULL,0,42,0,MODE_EMA,PRICE_CLOSE,0);
+   double monthly_EMA = iMA(NULL,0,180,0,MODE_EMA,PRICE_CLOSE,0);
+   double threeMonth_EMA = iMA(NULL,0,540,0,MODE_EMA,PRICE_CLOSE,0);
+   double sixMonth_EMA = iMA(NULL,0,1080,0,MODE_EMA,PRICE_CLOSE,0);
+   double yearly_EMA = iMA(NULL,0,2160,0,MODE_EMA,PRICE_CLOSE,0);
+
+//--- Price within a certain % of the EMA price. Allows you to have more control of the order trigger range
+   double max_daily_EMA = oneDay_EMA*(double)max_daily_EMA_Set;
+   double min_daily_EMA = oneDay_EMA*(double)min_daily_EMA_Set;
+   double max_Twoday_EMA = twoDay_EMA*(double)max_Twoday_EMA_Set;
+   double min_Twoday_EMA = twoDay_EMA*(double)min_Twoday_EMA_Set;
+   double min_midDay_EMA = midDay_EMA*(double)min_midDay_EMA_Set;
+   double max_midDay_EMA = midDay_EMA*(double)max_midDay_EMA_Set;
+
+//--- Weekly 4 hour RSI
+   double weekly4hour_RSI = iRSI(NULL,0,42,PRICE_CLOSE,0);
+
+//--- Goes trading only for first tiks of new bar --doesnt work as good as I need it to
+//if(Volume[0]>1)
+// return;
+
+//---Loop over the total number of orders. OrdersTotal() returns the total number of market and pending orders
+   for(int i=0; i<OrdersTotal(); i++)
+     {
+      //Checks order selected from trading pool(opened and pending orders) by indexed position i. if no open or pending orders for i in trading pool then break
+      if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES)==false)
+         break;
+      //check for magic number and correct currency symbol. if it is not a match it continues to check the next order if it is a match then function keeps going
+      if(OrderMagicNumber()!=MAGICMA || OrderSymbol()!=Symbol())
+         continue;
+      //--- check order type is SELL then check for clsoe order conditions(Take Profit)
+      if(OrderType()==OP_BUY)
+        {
+         //Close BUY Order if RSI Overbought
+         if(weekly4hour_RSI>RSIoverBought)
+           {
+            //OrderClose(ticket,lots,price,slippage,arrow color)
+            if(!OrderClose(OrderTicket(),OrderLots(),Bid,3,White))
+              {
+               Print("BUY OrderClose error ",GetLastError());
+              }
+            else
+              {
+               Print("BUY OrderClosed succesfuly");
+              }
+           }
+         break;
+        }
+      //--- check order type is SELL then check for clsoe order conditions(Take Profit)
+      if(OrderType()==OP_SELL)
+        {
+         //Close SELL Order if RSI Oversold
+         if(weekly4hour_RSI<RSIoverSOLD)
+           {
+            if(!OrderClose(OrderTicket(),OrderLots(),Ask,3,White))
+               Print("SELL OrderClose error ",GetLastError());
+           }
+         else
+           {
+            Print("SELL OrderClosed succesfuly");
+           }
+         break;
+        }
+     }
+  }
+//+------------------------------------------------------------------+
+//| OnTick function                                                  |
+//+------------------------------------------------------------------+
+void OnTick()
+  {
+       
+//--- Crypto 4Hour EMA's//
+   double midDay_EMA = iMA(NULL,0,3,0,MODE_EMA,PRICE_CLOSE,0);
+   double oneDay_EMA = iMA(NULL,0,6,0,MODE_EMA,PRICE_CLOSE,0);
+   double twoDay_EMA = iMA(NULL,0,12,0,MODE_EMA,PRICE_CLOSE,0);
+   double weekly_EMA = iMA(NULL,0,42,0,MODE_EMA,PRICE_CLOSE,0);
+   double monthly_EMA = iMA(NULL,0,180,0,MODE_EMA,PRICE_CLOSE,0);
+   double threeMonth_EMA = iMA(NULL,0,540,0,MODE_EMA,PRICE_CLOSE,0);
+   double sixMonth_EMA = iMA(NULL,0,1080,0,MODE_EMA,PRICE_CLOSE,0);
+   double yearly_EMA = iMA(NULL,0,2160,0,MODE_EMA,PRICE_CLOSE,0);
+
+//--- Price within a certain % of the EMA price. Allows you to have more control of the order trigger range
+   double max_daily_EMA = oneDay_EMA*(double)max_daily_EMA_Set;
+   double min_daily_EMA = oneDay_EMA*(double)min_daily_EMA_Set;
+   double max_Twoday_EMA = twoDay_EMA*(double)max_Twoday_EMA_Set;
+   double min_Twoday_EMA = twoDay_EMA*(double)min_Twoday_EMA_Set;
+   double min_midDay_EMA = midDay_EMA*(double)min_midDay_EMA_Set;
+   double max_midDay_EMA = midDay_EMA*(double)max_midDay_EMA_Set;
+
+
+//--- If there are no open positions call the functions to check for open order conditions else it checks for close order conditions
+   if(CalculateCurrentOrders(Symbol())==0)
+      CheckForOpen();
+   else
+      CheckForClose();
+
+//---Update trailing stop loss price for OPen BUY orders- Trails the EMA only to the profit side
+   int open_ticket = get_my_open_order();
+   if(open_ticket <= 0)
+     {
+      Print("There are NO open BUY orders. get_my_open_order() returns", get_my_open_order());
+     }
+   else
+     {
+      if(OrderSelect(open_ticket,SELECT_BY_TICKET) == false)
+        {
+         Print("updated_existing_BUY_ticket_stop_loss> Error in OrderSelect. Error code=",GetLastError());
+        }
+      else
+        {
+         Print("Order select current order open ticket is:...........................",open_ticket);
+        }
+      if(get_open_order_type() == OP_BUY)
+        {
+         Print("Open ordfer is a Buy");
+         double current_TP_BUY = OrderStopLoss();
+         Print("Current TP for open BUY orders:...............",current_TP_BUY);
+         double trailing_stop_BUY = twoDay_EMA - (MathAbs(Ask - Bid)*2);
+         Print("Trailing TP:............",trailing_stop_BUY);
+
+         if(current_TP_BUY >= trailing_stop_BUY)
+            return;
+
+         //Print("I am calling the code to update stop loss to",trailing_stop_BUY);
+         if(updated_existing_ticket_stop_loss(trailing_stop_BUY) == 100)
+           {
+            // THE ORDER WAS UPDATED TO YOUR STOP LOSS, PERFORM LOGIC WHICH IS SPECIFIC TO WHEN YOU HAVE AN ORDER OPEN HERE
+            Print("Order trailing stop loss was updated. ");
+            return;
+           }
+        }
+     }
+
+//---Update trailing stop loss price for Open SELL orders. Trails the EMA only to the profit side
+   if(open_ticket <= 0)
+     {
+      Print("There are NO open SELL orders. get_my_open_order() returns", get_my_open_order());
+     }
+   else
+     {
+      if(OrderSelect(open_ticket,SELECT_BY_TICKET) == false)
+        {
+         Print("updated_existing_SELL_ticket_stop_loss> Error in OrderSelect. Error code=",GetLastError());
+        }
+      else
+        {
+         Print("Order select current order open ticket is:...........................",open_ticket);
+        }
+
+      if(get_open_order_type() == OP_SELL)
+        {
+         Print("Open order is a SELL");
+         double current_TP_SELL = OrderStopLoss();
+         Print("Current TP For open Sell Order:...............",current_TP_SELL);
+         double trailing_stop_SELL = twoDay_EMA + (MathAbs(Ask - Bid)*2);
+         Print("Trailing TP For open Sell Order:...............",trailing_stop_SELL);
+
+         //I want the lesser of the two < does not include the stop loss at all because the initial stop loss is zero
+         if(current_TP_SELL < trailing_stop_SELL) //TRUE
+            return;
+         Print("Did not return current tp",current_TP_SELL," should be greater or equal to trailing stop SELL:",trailing_stop_SELL);
+
+         if(updated_existing_ticket_stop_loss(trailing_stop_SELL) == 100)
+           {
+            // THE ORDER WAS UPDATED TO YOUR STOP LOSS, PERFORM LOGIC WHICH IS SPECIFIC TO WHEN YOU HAVE AN ORDER OPEN HERE
+            Print("Order trailing stop loss was updated. ");
+            return;
+           }
+        }
+     }
+  }
+//+------------------------------------------------------------------+
+//| Copyright 2022, Rafael Santos, Santos Family Holdings LLC        |
+//+------------------------------------------------------------------+

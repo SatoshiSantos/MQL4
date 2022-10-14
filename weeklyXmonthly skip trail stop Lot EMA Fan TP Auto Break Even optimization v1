@@ -1,0 +1,672 @@
+//+------------------------------------------------------------------+
+//|                                               Moving Average.mq4 |
+//|                   Copyright 2005-2014, MetaQuotes Software Corp. |
+//|                                              http://www.mql4.com |
+//+------------------------------------------------------------------+
+#property copyright   "2005-2014, MetaQuotes Software Corp."
+#property link        "http://www.mql4.com"
+#property description "Moving Average sample expert advisor"
+
+#define MAGICMA  20131111
+//--- Inputs
+input double Lots          =0.05;
+input double MaximumRisk   =0.03;
+input double DecreaseFactor= 3;
+
+int ThisBarTrade           =  0;
+
+//+------------------------------------------------------------------+
+//| Calculate open positions                                         |
+//+------------------------------------------------------------------+
+int CalculateCurrentOrders(string symbol)
+  {
+   int buys=0,sells=0;
+//---
+   for(int i=0; i<OrdersTotal(); i++)
+     {
+      if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES)==false)
+         break;
+      if(OrderSymbol()==Symbol() && OrderMagicNumber()==MAGICMA)
+        {
+         if(OrderType()==OP_BUY)
+            buys++;
+         if(OrderType()==OP_SELL)
+            sells++;
+        }
+     }
+//--- return orders volume
+   if(buys>0)
+      return(buys);
+   else
+      return(-sells);
+  }
+//+------------------------------------------------------------------+
+//| Calculate optimal lot size                                       |
+//+------------------------------------------------------------------+
+double LotsOptimized()
+  {
+   double lot=Lots;
+   int    orders=HistoryTotal();     // history orders total
+   int    losses=0;                  // number of losses orders without a break
+//--- select lot size
+   lot=NormalizeDouble(AccountFreeMargin()*MaximumRisk/1000.0,1);
+//--- calcuulate number of losses orders without a break
+   if(DecreaseFactor>0)
+     {
+      for(int i=orders-1; i>=0; i--)
+        {
+         if(OrderSelect(i,SELECT_BY_POS,MODE_HISTORY)==false)
+           {
+            Print("Error in history!");
+            break;
+           }
+         if(OrderSymbol()!=Symbol() || OrderType()>OP_SELL)
+            continue;
+         //---
+         if(OrderProfit()>0)
+            break;
+         if(OrderProfit()<0)
+            losses++;
+        }
+      if(losses>1)
+         lot=NormalizeDouble(lot-lot*losses/DecreaseFactor,1);
+     }
+//--- return lot size
+   if(lot<Lots)
+      lot=Lots;
+   return(lot);
+  }
+//+------------------------------------------------------------------+
+//| Check for open order conditions                                  |
+//+------------------------------------------------------------------+
+void CheckForOpen()
+  {
+
+   int    res;
+
+//--- get Moving Average
+   double weekly_EMA = iMA(NULL,0,42,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of weekly_EMA is ", weekly_EMA);
+   double monthly_EMA = iMA(NULL,0,180,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of monthly_EMA is ", monthly_EMA);
+
+   double oneDay_EMA = iMA(NULL,0,6,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of oneDay_EMA is ", oneDay_EMA);
+   double twoDay_EMA = iMA(NULL,0,12,0,MODE_EMA,PRICE_CLOSE,0);
+
+   double twoBar_EMA = iMA(NULL,0,2,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of twoBar_EMA is ", twoBar_EMA);
+   double midDay_EMA = iMA(NULL,0,3,0,MODE_EMA,PRICE_CLOSE,0);
+//Print("The value of midDay_EMA is ", oneDay_EMA);
+
+
+//--- SELL conditions
+   if((weekly_EMA + 0.0010) < monthly_EMA
+      && twoDay_EMA < weekly_EMA
+      && oneDay_EMA < twoDay_EMA
+      && midDay_EMA < oneDay_EMA
+      && twoBar_EMA < midDay_EMA
+      && Open[0] < Ask
+     )
+     {
+      double trailing_stop_SELL_set = weekly_EMA + (MathAbs(Ask - Bid)*2);
+      res=OrderSend(Symbol(),OP_SELL,LotsOptimized(),Bid,3,trailing_stop_SELL_set,0,"",MAGICMA,0,Red);
+      Print(" Sell trade:",res," placed at Bid price of:",Bid);
+
+
+      if((weekly_EMA + 0.0010) < monthly_EMA)
+        {
+         Print("Weekly plus 10 Pips is below the Monthly, Sell Condition 1 is met");
+        }
+      else
+        {
+         Print("Weekly plus 10 Pips is NOT below the Monthly, Sell Condition 1 is NOT met");
+        }
+
+      if(twoDay_EMA < weekly_EMA)
+        {
+         Print("Two day is below teh weekly , Sell Condition 2 is met");
+        }
+      else
+        {
+         Print("Two day is NOT below the weekly , Sell Condition 2 is NOT met");
+        }
+
+      if(oneDay_EMA < twoDay_EMA)
+        {
+         Print("One day is below the two day, Sell Condition 3 is met");
+        }
+      else
+        {
+         Print("One day is NOT below the two day, Sell Condition 3 is NOT met");
+        }
+
+      if(midDay_EMA < oneDay_EMA)
+        {
+         Print("Mid day below one day, Sell Condition 4 is met");
+        }
+      else
+        {
+         Print("Mid day is NOT below one day, Sell Condition 4 is NOT met");
+        }
+
+      if(twoBar_EMA < midDay_EMA)
+        {
+         Print("Two bar below Mid day, Sell Condition 5 is met");
+        }
+      else
+        {
+         Print("Two bar is NOT below Mid day, Sell Condition 5 is NOT met");
+        }
+
+      if(Open[0] > Bid)
+        {
+         Print("Open price",Open[0]," is above", Bid," Price, Sell Condition 6 is met");
+        }
+      else
+        {
+         Print("Open price",Open[0]," is NOT above", Bid," Price, Sell Condition 6 is NOT met");
+        }
+
+      if((weekly_EMA + 0.0010) < monthly_EMA
+         && twoDay_EMA < weekly_EMA
+         && oneDay_EMA < twoDay_EMA
+         && midDay_EMA < oneDay_EMA
+         && twoBar_EMA < midDay_EMA
+         && Open[0] > Bid)
+        {
+         Print("All Sell Conditions are TRUE, EA should place a Sell Order");
+        }
+
+      return;
+     }
+   else
+     {
+      //--- BUY conditions
+      if((weekly_EMA - 0.0010) > monthly_EMA
+         && twoDay_EMA > weekly_EMA
+         && oneDay_EMA > twoDay_EMA
+         && midDay_EMA > oneDay_EMA
+         && twoBar_EMA > midDay_EMA
+         && Open[0] < Ask)
+        {
+         double trailing_stop_Buy_set = weekly_EMA - (MathAbs(Ask - Bid)*2);
+         res=OrderSend(Symbol(),OP_BUY,LotsOptimized(),Ask,3,trailing_stop_Buy_set,0,"",MAGICMA,0,Blue);
+         Alert(" Buy trade:",res," placed at Ask price of:",Ask);
+         return;
+        }
+     }
+  }
+//+------------------------------------------------------------------+
+//|  Trailing stop                                                   |
+//+------------------------------------------------------------------+
+int  updated_existing_ticket_stop_loss(double NEW_STOP_LOSS_VALUE_FOR_OPEN_ORDER)
+  {
+
+   int open_ticket = get_my_open_order();
+   if(open_ticket <= 0)
+     {
+      return(-1);
+     }
+   else
+     {
+      //Print("I am updating stoploss on ticket #",open_ticket);
+      if(OrderSelect(open_ticket,SELECT_BY_TICKET) == false)
+        {
+         Print("updated_existing_ticket_stop_loss> Error in OrderSelect. Error code=",GetLastError());
+         return(-2);
+        }
+      else
+        {
+
+         double previous_stop_loss_value = OrderStopLoss();
+         //Print("existing ticket found. updating it from: ", previous_stop_loss_value," to: ", NEW_STOP_LOSS_VALUE_FOR_OPEN_ORDER);
+         if(OrderModify(OrderTicket(),OrderOpenPrice(), NEW_STOP_LOSS_VALUE_FOR_OPEN_ORDER,OrderTakeProfit(),OrderExpiration(),Blue) == true)
+           {
+            //Print("Order Ticket #", open_ticket," successfully updated from stop loss value of: ", previous_stop_loss_value,  " to stop loss value of: ", NEW_STOP_LOSS_VALUE_FOR_OPEN_ORDER);
+            return(100);
+           }
+         else
+           {
+            //Return true here because even though the update failed, we dont want to execute an order,
+            //Print("Error in OrderModify. Error code=",GetLastError());
+            return(-2);
+           }
+         return(-1);
+        }
+      return(-1);
+     }
+   return(-1);
+  }
+//+------------------------------------------------------------------+
+//| Get Open Order                                                   |
+//+------------------------------------------------------------------+
+int get_my_open_order()
+  {
+   int total=OrdersTotal();
+//Print("There are ",total,"open orders......");
+   if(total==0)
+      return(0);
+   for(int pos=0; pos<total; pos++)
+     {
+      if(OrderSelect(pos,SELECT_BY_POS)==false)
+        {
+         Print("get_my_open_order> OrderSelect Error: ", GetLastError());
+         continue;
+
+        }
+      int my_open_order_ticket = OrderTicket();
+
+      //Print("I am returning ticket #",my_open_order_ticket);
+      return(my_open_order_ticket);
+     }
+   return(0);
+  }
+//+------------------------------------------------------------------+
+//| Get open order type                                                                 |
+//+------------------------------------------------------------------+
+int get_open_order_type()
+  {
+   return(get_order_type_by_id(get_my_open_order()));
+  }
+//+------------------------------------------------------------------+
+//| Get order type by id                                               |
+//+------------------------------------------------------------------+
+int get_order_type_by_id(int order_id)
+  {
+   int order_type;
+   if(order_id<=0)
+      return(-100);
+   if(OrderSelect(order_id, SELECT_BY_TICKET)==true)
+     {
+      order_type=OrderType();
+      Print("The order type of order id #", order_id," is: ",order_type);
+      return(order_type);
+     }
+   else
+     {
+      Print("get_order_type_by_id> OrderSelect() returned error - ",GetLastError());
+      return -1;
+     }
+  }
+//+------------------------------------------------------------------+
+//| Check for close order conditions                                 |
+//+------------------------------------------------------------------+
+void CheckForClose()
+  {
+
+   double oneDay_EMA = iMA(NULL,PERIOD_H4,6,0,MODE_EMA,PRICE_CLOSE,0);
+   double twoDay_EMA = iMA(NULL,PERIOD_H4,12,0,MODE_EMA,PRICE_CLOSE,0);
+
+
+
+   for(int i=0; i<OrdersTotal(); i++)
+     {
+      if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES)==false)
+         break;
+      if(OrderMagicNumber()!=MAGICMA || OrderSymbol()!=Symbol())
+         continue;
+      //--- check order type
+      if(OrderType()==OP_BUY)
+        {
+         if(oneDay_EMA < twoDay_EMA)
+           {
+            if(!OrderClose(OrderTicket(),OrderLots(),Bid,3,White))
+               Print("OrderClose error ",GetLastError());
+           }
+         break;
+        }
+      if(OrderType()==OP_SELL)
+        {
+         if(oneDay_EMA > twoDay_EMA)
+           {
+            if(!OrderClose(OrderTicket(),OrderLots(),Ask,3,White))
+               Print("OrderClose error ",GetLastError());
+           }
+         break;
+        }
+     }
+  }
+//+------------------------------------------------------------------+
+//| OnTick function                                                  |
+//+------------------------------------------------------------------+
+void OnTick()
+  {
+   double twoBar_EMA = iMA(NULL,0,2,0,MODE_EMA,PRICE_CLOSE,0);
+   double midDay_EMA = iMA(NULL,0,3,0,MODE_EMA,PRICE_CLOSE,0);
+   double oneDay_EMA = iMA(NULL,0,6,0,MODE_EMA,PRICE_CLOSE,0);
+   double twoDay_EMA = iMA(NULL,0,12,0,MODE_EMA,PRICE_CLOSE,0);
+   double weekly_EMA = iMA(NULL,0,42,0,MODE_EMA,PRICE_CLOSE,0);
+   double monthly_EMA = iMA(NULL,0,180,0,MODE_EMA,PRICE_CLOSE,0);
+   double threeMonth_EMA = iMA(NULL,0,540,0,MODE_EMA,PRICE_CLOSE,0);
+   double sixMonth_EMA = iMA(NULL,0,1080,0,MODE_EMA,PRICE_CLOSE,0);
+   double yearly_EMA = iMA(NULL,0,2160,0,MODE_EMA,PRICE_CLOSE,0);
+
+//--- check for history and trading
+   if(Bars<100 || IsTradeAllowed()==false)
+      return;
+//--- calculate open orders by current symbol
+
+
+   if(Bars != ThisBarTrade)
+     {
+      ThisBarTrade = Bars;  // ensure only one trade opportunity per bar
+      if(CalculateCurrentOrders(Symbol())==0)
+         CheckForOpen();
+      else
+         CheckForClose();
+     }
+
+
+
+//---Update trailing stop loss price for OPen BUY orders- Trails the EMA only to the profit side
+   int open_ticket = get_my_open_order();
+   if(open_ticket <= 0)
+     {
+      Print("There are NO open BUY orders. get_my_open_order() returns", get_my_open_order());
+     }
+   else
+     {
+      if(OrderSelect(open_ticket,SELECT_BY_TICKET) == false)
+        {
+         Print("updated_existing_BUY_ticket_stop_loss> Error in OrderSelect. Error code=",GetLastError());
+        }
+      else
+        {
+         Print("Order select current order open ticket is:...........................",open_ticket);
+        }
+      if(get_open_order_type() == OP_BUY)
+        {
+         Print("Open ordfer is a Buy");
+         double current_TP_BUY = OrderStopLoss();
+         Print("Current TP for open BUY orders:...............",current_TP_BUY);
+         double trailing_stop_BUY = weekly_EMA - (MathAbs(Ask - Bid)*2);
+         Print("Trailing TP:............",trailing_stop_BUY);
+
+         double trailing_stop_BUY2 = twoDay_EMA - (MathAbs(Ask - Bid)*2);
+         Print("Trailing TP2:............",trailing_stop_BUY2);
+
+         double trailing_stop_BUY3 = oneDay_EMA - (MathAbs(Ask - Bid)*2);
+         Print("Trailing TP3:............",trailing_stop_BUY3);
+
+         double trailing_stop_BUY4 = midDay_EMA - (MathAbs(Ask - Bid)*1);
+         Print("Trailing TP4:............",trailing_stop_BUY4);
+
+         double trailing_stop_BUY5 = twoBar_EMA - (MathAbs(Ask - Bid)*1);
+         Print("Trailing TP5:............",trailing_stop_BUY5);
+
+         double trailing_stop_BUY6 = Bid - (MathAbs(Ask - Bid)*1);
+         Print("Trailing TP6:............",trailing_stop_BUY6);
+
+         double breakEven_BUY = OrderOpenPrice() + (MathAbs(Ask - Bid)+ 0.0001);
+
+         if((OrderOpenPrice() + (MathAbs(Ask - Bid)+ 0.0005) <= Bid) && (current_TP_BUY <=  OrderOpenPrice()))
+           {
+            trailing_stop_BUY=breakEven_BUY;
+            if(updated_existing_ticket_stop_loss(trailing_stop_BUY) == 100)
+              {
+               Print("Order trailing stop loss was updated SL4. ");
+               return;
+              }
+           }
+
+         if(current_TP_BUY >= trailing_stop_BUY6)
+            return;/*
+         if(current_TP_BUY >= trailing_stop_BUY2)
+            return;
+         if(current_TP_BUY >= trailing_stop_BUY)
+            return;*/
+
+
+         if(current_TP_BUY < trailing_stop_BUY)
+           {
+            if(updated_existing_ticket_stop_loss(trailing_stop_BUY) == 100)
+              {
+               Print("Order trailing stop loss was updated BUY Break Even. ");
+               return;
+              }
+           }
+
+         if(current_TP_BUY > trailing_stop_BUY)
+           {
+            if((trailing_stop_BUY+ 0.0100)< trailing_stop_BUY2)
+              {
+               trailing_stop_BUY=trailing_stop_BUY2; //twoday ema
+               if((trailing_stop_BUY2 + 0.0075)< trailing_stop_BUY3)
+                 {
+                  trailing_stop_BUY= trailing_stop_BUY3; //oneday EMA
+                  //Print("I am calling the code to update stop loss to",trailing_stop_BUY);
+                  if((trailing_stop_BUY3 +0.0050) < trailing_stop_BUY4)
+                    {
+                     trailing_stop_BUY = trailing_stop_BUY4; //midDayEMA
+                     if((trailing_stop_BUY4 + 0.0025) < trailing_stop_BUY5)
+                       {
+                        trailing_stop_BUY = trailing_stop_BUY5; //two bar ema
+                        if((trailing_stop_BUY5 + .0010)< trailing_stop_BUY6)
+                          {
+                           trailing_stop_BUY = trailing_stop_BUY6; //Bid
+                           if(updated_existing_ticket_stop_loss(trailing_stop_BUY) == 100)
+                             {
+                              Print("Order trailing stop loss was updated SL4. ");
+                              return;
+                             }
+                          }
+                        else
+                          {
+                           if(updated_existing_ticket_stop_loss(trailing_stop_BUY) == 100)
+                             {
+                              Print("Order trailing stop loss was updated SL4. ");
+                              return;
+                             }
+                          }
+                       }
+                     else
+                       {
+                        if(updated_existing_ticket_stop_loss(trailing_stop_BUY) == 100)
+                          {
+                           Print("Order trailing stop loss was updated SL4. ");
+                           return;
+                          }
+                       }
+                    }
+                  else
+                    {
+                     trailing_stop_BUY = trailing_stop_BUY4;
+                     if(updated_existing_ticket_stop_loss(trailing_stop_BUY) == 100)
+                       {
+                        Print("Order trailing stop loss was updated SL3. ");
+                        return;
+                       }
+                    }
+                 }
+               else
+                 {
+                  if(updated_existing_ticket_stop_loss(trailing_stop_BUY) == 100)
+                    {
+                     Print("Order trailing stop loss was updated SL2. ");
+                     return;
+                    }
+                 }
+              }
+            else
+              {
+               if(updated_existing_ticket_stop_loss(trailing_stop_BUY) == 100)
+                 {
+                  Print("Order trailing stop loss was updated SL1. ");
+                  return;
+                 }
+
+              }
+           }
+         else
+           {
+            if(updated_existing_ticket_stop_loss(trailing_stop_BUY) == 100)
+              {
+               Print("Order trailing stop loss was updated SL1. ");
+               return;
+              }
+           }
+        }
+     }
+
+//---Update trailing stop loss price for Open SELL orders. Trails the EMA only to the profit side
+   if(open_ticket <= 0)
+     {
+      Print("There are NO open SELL orders. get_my_open_order() returns", get_my_open_order());
+     }
+   else
+     {
+      if(OrderSelect(open_ticket,SELECT_BY_TICKET) == false)
+        {
+         Print("updated_existing_SELL_ticket_stop_loss> Error in OrderSelect. Error code=",GetLastError());
+        }
+      else
+        {
+         Print("Order select current order open ticket is:...........................",open_ticket);
+        }
+
+      if(get_open_order_type() == OP_SELL)
+        {
+         Print("Open order is a SELL");
+         double current_TP_SELL = OrderStopLoss();
+         Print("Current TP For open Sell Order:...............",current_TP_SELL);
+         double trailing_stop_SELL = weekly_EMA + (MathAbs(Ask - Bid)*2);
+         Print("Trailing TP For open Sell Order:...............",trailing_stop_SELL);
+         double trailing_stop_SELL2 = twoDay_EMA + (MathAbs(Ask - Bid)*2);
+         Print("Trailing TP2 For open Sell Order:...............",trailing_stop_SELL2);
+         double trailing_stop_SELL3 = oneDay_EMA + (MathAbs(Ask - Bid)*2);
+         Print("Trailing TP3 For open Sell Order:...............",trailing_stop_SELL3);
+         double trailing_stop_SELL4 = midDay_EMA + (MathAbs(Ask - Bid)*1);
+         Print("Trailing TP4 For open Sell Order:...............",trailing_stop_SELL4);
+         double trailing_stop_SELL5 = twoBar_EMA + (MathAbs(Ask - Bid)*1);
+         Print("Trailing TP5 For open Sell Order:...............",trailing_stop_SELL5);
+         double trailing_stop_SELL6 = Bid + (MathAbs(Ask - Bid)*1);
+         Print("Trailing TP6 For open Sell Order:...............",trailing_stop_SELL6);
+
+
+         //I want the lesser of the two < does not include the stop loss at all because the initial stop loss is zero
+         //if(current_TP_SELL <= trailing_stop_SELL) //TRUE
+         // return;
+         // if(trailing_stop_SELL <=trailing_stop_SELL2)
+         // return;
+
+      double breakEven_SELL = OrderOpenPrice() - (MathAbs(Ask - Bid)- 0.0001);
+
+         if((OrderOpenPrice() - (MathAbs(Ask - Bid)- 0.0005) >= Ask) && (current_TP_SELL >=  OrderOpenPrice()))
+           {
+            trailing_stop_SELL=breakEven_SELL;
+            if(updated_existing_ticket_stop_loss(trailing_stop_SELL) == 100)
+              {
+               Print("Order trailing stop loss was updated Sell Break Even. ");
+               return;
+              }
+           }
+           
+           
+
+         if(current_TP_SELL <= trailing_stop_SELL6)
+            return;
+
+
+         if(current_TP_SELL > trailing_stop_SELL)
+           {
+            if(updated_existing_ticket_stop_loss(trailing_stop_SELL) == 100)
+              {
+               Print("Order trailing stop loss was updated SL4. ");
+               return;
+              }
+           }
+
+         if(current_TP_SELL < trailing_stop_SELL)
+           {
+            if((trailing_stop_SELL - 0.0100) > trailing_stop_SELL2)
+              {
+               trailing_stop_SELL=trailing_stop_SELL2;
+
+               if((trailing_stop_SELL2 - 0.0075) > trailing_stop_SELL3)
+                 {
+                  trailing_stop_SELL=trailing_stop_SELL3;
+                  if((trailing_stop_SELL - 0.0050) > trailing_stop_SELL4)
+                    {
+                     trailing_stop_SELL = trailing_stop_SELL4;
+
+                     if((trailing_stop_SELL4 - 0.0025) > trailing_stop_SELL5)
+                       {
+                        trailing_stop_SELL = trailing_stop_SELL5;
+                        if((trailing_stop_SELL5 + 0.0010) > trailing_stop_BUY6)
+                          {
+                           trailing_stop_SELL = trailing_stop_SELL6;
+                           if(updated_existing_ticket_stop_loss(trailing_stop_SELL) == 100)
+                             {
+                              // THE ORDER WAS UPDATED TO YOUR STOP LOSS, PERFORM LOGIC WHICH IS SPECIFIC TO WHEN YOU HAVE AN ORDER OPEN HERE
+                              Print("Order trailing stop loss was updated. ");
+                              return;
+                             }
+                          }
+                        else
+                          {
+                           if(updated_existing_ticket_stop_loss(trailing_stop_SELL) == 100)
+                             {
+                              // THE ORDER WAS UPDATED TO YOUR STOP LOSS, PERFORM LOGIC WHICH IS SPECIFIC TO WHEN YOU HAVE AN ORDER OPEN HERE
+                              Print("Order trailing stop loss was updated. ");
+                              return;
+                             }
+                          }
+                       }
+                     else
+                       {
+                        if(updated_existing_ticket_stop_loss(trailing_stop_SELL) == 100)
+                          {
+                           //THE ORDER WAS UPDATED TO YOUR STOP LOSS, PERFORM LOGIC WHICH IS SPECIFIC TO WHEN YOU HAVE AN ORDER OPEN HERE
+                           Print("Order trailing stop loss was updated. ");
+                           return;
+                          }
+                       }
+                    }
+                  else
+                    {
+                     if(updated_existing_ticket_stop_loss(trailing_stop_SELL) == 100)
+                       {
+                        // THE ORDER WAS UPDATED TO YOUR STOP LOSS, PERFORM LOGIC WHICH IS SPECIFIC TO WHEN YOU HAVE AN ORDER OPEN HERE
+                        Print("Order trailing stop loss was updated. ");
+                        return;
+                       }
+                    }
+                 }
+               else
+                 {
+                  if(updated_existing_ticket_stop_loss(trailing_stop_SELL) == 100)
+                    {
+                     // THE ORDER WAS UPDATED TO YOUR STOP LOSS, PERFORM LOGIC WHICH IS SPECIFIC TO WHEN YOU HAVE AN ORDER OPEN HERE
+                     Print("Order trailing stop loss was updated. ");
+                     return;
+                    }
+                 }
+              }
+            else
+              {
+               if(updated_existing_ticket_stop_loss(trailing_stop_SELL) == 100)
+                 {
+                  // THE ORDER WAS UPDATED TO YOUR STOP LOSS, PERFORM LOGIC WHICH IS SPECIFIC TO WHEN YOU HAVE AN ORDER OPEN HERE
+                  Print("Order trailing stop loss was updated. ");
+                  return;
+                 }
+              }
+           }
+         else
+           {
+            if(updated_existing_ticket_stop_loss(trailing_stop_SELL) == 100)
+              {
+               // THE ORDER WAS UPDATED TO YOUR STOP LOSS, PERFORM LOGIC WHICH IS SPECIFIC TO WHEN YOU HAVE AN ORDER OPEN HERE
+               Print("Order trailing stop loss was updated. ");
+               return;
+              }
+           }
+        }
+     }
+  }
+
+
+//---
+
+//+------------------------------------------------------------------+

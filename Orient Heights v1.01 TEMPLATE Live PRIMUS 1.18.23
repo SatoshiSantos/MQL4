@@ -1,0 +1,1045 @@
+//+------------------------------------------------------------------+
+//|                                    Orient Heights v1.01 Template |
+//|                      Copyright 2023, Santos Family Holdings LLC. |
+//|                           http://www.SantosFamilyHoldingsLLC.com |
+//+------------------------------------------------------------------+
+#property copyright   "2023, Santos Family Holdings LLC."
+#property link        "http://www.SantosFamilyHoldingsLLC.com"
+#property description "Orient Heights v1.01 Template"
+
+// Definition of an hour. This is necessary for a drop down menu for hours input.
+enum ENUM_HOUR
+  {
+   h00 = 00, // 00:00
+   h01 = 01, // 01:00
+   h02 = 02, // 02:00
+   h03 = 03, // 03:00
+   h04 = 04, // 04:00
+   h05 = 05, // 05:00
+   h06 = 06, // 06:00
+   h07 = 07, // 07:00
+   h08 = 08, // 08:00
+   h09 = 09, // 09:00
+   h10 = 10, // 10:00
+   h11 = 11, // 11:00
+   h12 = 12, // 12:00
+   h13 = 13, // 13:00
+   h14 = 14, // 14:00
+   h15 = 15, // 15:00
+   h16 = 16, // 16:00
+   h17 = 17, // 17:00
+   h18 = 18, // 18:00
+   h19 = 19, // 19:00
+   h20 = 20, // 20:00
+   h21 = 21, // 21:00
+   h22 = 22, // 22:00
+   h23 = 23, // 23:00
+  };
+
+//--- Hour inputs
+input ENUM_HOUR StartHour            = h17; // First operation hour
+input ENUM_HOUR LastHour             = h21; // Last operation hourv
+input double MAGICMA                 = 052719881; //EA magic number. Identifies transactions only related to this EA
+
+
+//---Lot optimization inputs
+input double Lots                     = 1.00; //Standard Lot size
+input bool LotOptimization           = true; //Lot Optimizati, AccountFreeMargin*MaximumRisk/1000.0
+input double MinLotSize              = .02; //Minimum lot size if LotOptimization is true
+input double MaxLotSize              = 10.00; //Maximum lot size if LotOptimization is true
+input double MaximumRisk             = 0.01; //Maximum risk percent if LotOptimization is true
+input double DecreaseFactor          = 2; // Decrease factor if LotOptimization is true
+
+//--Daily profit inputs
+input bool DailyProfitFilter = true; // Stop trading if account hits max daily drawdown or max daily profit
+input double maxDailyDrawdown = -1600; // Max daily drawdown
+input double maxDailyProfit = 6500; // Max daily profit
+
+//---Gaps Inputs
+input double Max_Gap_Value           = 14; //Max gap value allowed in pips
+input int    GapSleepTime            = 30; //Gap sleep time in minutes
+
+//---Trailing Stop Inputs
+input bool EMA_TrailStop = true;
+input double EMA_TrailingStop_Value = 14;
+
+//input bool Traditional_TrailStop = true;
+//input double Traditional_TrailingStop_Value = 2000;
+
+input double SellSpreadMultiplier = 6; // How many times to account for the spread for Sell orders stop loss
+input double BuySpreadMultiplier = 5; // How many times to account for the spread for Buy orders stop loss
+
+input bool ClosePositionTarget            = true;//Close partial Positions at target
+input double ClosePositionTargetLotSize   = 0.90; // Position size to close at target in percent
+input double closePositionTarget_Value    = 23000; // If two or three digit symbol 100 = 1 pip if four or 5 digit symbol 100 = 100 pips
+
+//---EMA inputs
+input int EMA_1 = 5;
+input int EMA_2 = 7;
+input int EMA_3 = 8;
+input int EMA_4 = 10;
+input int EMA_5 = 26;
+input int EMA_6 = 100;
+
+input bool tradeOnMonday = true;
+input bool tradeOnTuesday = true;
+input bool tradeOnWednesday = true;
+input bool tradeOnThursday = true;
+input bool tradeOnFriday = true;
+input bool tradeOnSaturday = true;
+input bool tradeOnSunday = true;
+
+//---News Filter Inputs
+input  bool   NewsFilter             = false; // Indent after News, minutes
+input  int   AfterNewsStop           = 5; // Indent after News, minutes
+input  int   BeforeNewsStop          = 5; // Indent before News, minutes
+input int    NewsSleepTime           = 10; //News sleep time in minutes
+input bool   NewsLight               = false; // Enable light news
+input bool   NewsMedium              = false; // Enable medium news
+input bool   NewsHard                = false; // Enable hard news
+input int    offset                  = -5;     // Your Time Zone, GMT (for news)
+input string NewsSymb                = "USD"; //Currency to display the news (empty - only the current currencies)
+input bool   DrawLines               = true;       // Draw lines on the chart
+input bool   Next                    = true;      // Draw only the future of news line
+input bool   Signal                  = false;      // Signals on the upcoming news
+input int    Upd                     = 12;      // Period news updates in hours
+//---News Filter Variables
+color highc          = clrRed;     // Colour important news
+color mediumc        = clrBlue;    // Colour medium news
+color lowc           = clrLime;    // The color of weak news
+int   Style          = 2;          // Line style
+bool  Vhigh          = true;       // High impact news
+bool  Vmedium        = true;       // Medium impact news
+bool  Vlow           = true;       // Low impact news
+int   MinBefore=0;
+int   MinAfter=0;
+int NomNews=0;
+string NewsArr[4][1000];
+int Now=0;
+datetime LastUpd;
+string str1;
+
+int ThisBarTrade = 0;
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+int OnInit()
+  {
+   if(StringLen(NewsSymb)>1)
+      str1=NewsSymb;
+   else
+      str1=Symbol();
+
+   MinBefore=BeforeNewsStop;
+   MinAfter=AfterNewsStop;
+
+   if(CheckActiveHours())
+      Print("Trading hours enabled");
+
+     {
+      //---
+      DailyProfit();
+     }
+
+   return(INIT_SUCCEEDED);
+  }
+//+------------------------------------------------------------------+
+//| Expert deinitialization function                                 |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+   ObjectsDeleteAll(0,OBJ_VLINE);
+  }
+//+------------------------------------------------------------------+
+//|Daily Profit                                                      |
+//+------------------------------------------------------------------+
+double DailyProfit()
+  {
+   double profit = 0;
+   int i,hstTotal=OrdersHistoryTotal();
+   for(i=0; i<hstTotal; i++)
+     {
+      if(OrderSelect(i,SELECT_BY_POS,MODE_HISTORY)==TRUE)
+        {
+         if(TimeToStr(TimeLocal(),TIME_DATE) == TimeToStr(OrderCloseTime(),TIME_DATE))
+           {
+            profit += OrderProfit() + OrderSwap() + OrderCommission();
+           }
+        }
+     }
+   Comment("The daily profit is at",profit);
+   return(profit);
+  }
+//+------------------------------------------------------------------+
+//|Day of the week filter                                              |
+//+------------------------------------------------------------------+
+bool TradeOnSelectedDaysOfWeek()
+  {
+
+   int currentDayofWeek = DayOfWeek();
+   if(currentDayofWeek == 1 && tradeOnMonday)
+      return true;
+   else
+      if(currentDayofWeek == 2 && tradeOnTuesday)
+         return true;
+      else
+         if(currentDayofWeek == 3 && tradeOnWednesday)
+            return true;
+         else
+            if(currentDayofWeek == 4 && tradeOnThursday)
+               return true;
+            else
+               if(currentDayofWeek == 5 && tradeOnFriday)
+                  return true;
+               else
+                  if(currentDayofWeek == 6 && tradeOnSaturday)
+                     return true;
+                  else
+                     if(currentDayofWeek == 7 && tradeOnSunday)
+                        return true;
+                     else
+                        return false;
+  }
+//+------------------------------------------------------------------+
+//| Adjust Trading Hours                                             |
+//+------------------------------------------------------------------+
+bool CheckActiveHours()
+  {
+// Set operations disabled by default.
+   bool OperationsAllowed = false;
+// Check if the current hour is between the allowed hours of operations. If so, return true.
+   if((StartHour == LastHour) && (Hour() == StartHour))
+      OperationsAllowed = true;
+   if((StartHour < LastHour) && (Hour() >= StartHour) && (Hour() <= LastHour))
+      OperationsAllowed = true;
+   if((StartHour > LastHour) && (((Hour() >= LastHour) && (Hour() <= 23)) || ((Hour() <= StartHour) && (Hour() > 0))))
+      OperationsAllowed = true;
+   return OperationsAllowed;
+  }
+//+------------------------------------------------------------------+
+//| Calculate open positions                                         |
+//+------------------------------------------------------------------+
+int CalculateCurrentOrders(string symbol)
+  {
+   int buys=0,sells=0;
+   for(int i=0; i<OrdersTotal(); i++)
+     {
+      if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES)==false)
+         break;
+      if(OrderSymbol()==Symbol() && OrderMagicNumber()==MAGICMA)
+        {
+         if(OrderType()==OP_BUY)
+            buys++;
+         if(OrderType()==OP_SELL)
+            sells++;
+        }
+     }
+//--- return orders volume
+   if(buys>0)
+      return(buys);
+   else
+      return(-sells);
+  }
+//+------------------------------------------------------------------+
+//| Calculate optimal lot size                                       |
+//+------------------------------------------------------------------+
+double LotsOptimized()
+  {
+   double lot = Lots;
+   double minlot = MinLotSize;
+   double maxlot = MaxLotSize;
+   int    orders=HistoryTotal();     // history orders total
+   int    losses=0;                  // number of losses orders without a break
+
+   for(int j=0; j<OrdersTotal(); j++)
+     {
+      if(OrderSelect(j,SELECT_BY_POS,MODE_TRADES)==false)
+         break;
+      if(OrderSymbol()==Symbol() && OrderMagicNumber()==MAGICMA)
+        {
+         if(LotOptimization == true)
+           {
+            //--- select lot size
+            lot=NormalizeDouble(AccountFreeMargin()*MaximumRisk/1000.0,2);
+            //--- calcuulate number of losses orders without a break
+            if(DecreaseFactor>0)
+              {
+               for(int i=orders-1; i>=0; i--)
+                 {
+                  if(OrderSelect(i,SELECT_BY_POS,MODE_HISTORY)==false)
+                    {
+                     Print("Error in history!");
+                     break;
+                    }
+                  if(OrderSymbol()!=Symbol() || OrderType()>OP_SELL)
+                     continue;
+                  //---
+                  if(OrderProfit()>0)
+                     break;
+                  if(OrderProfit()<0)
+                     losses++;
+                 }
+               if(losses>1)
+                  lot=NormalizeDouble(lot-lot*losses/DecreaseFactor,1);
+              }
+            if(lot>MaxLotSize)
+               lot=MaxLotSize;
+            if(lot<MinLotSize)
+               lot=MinLotSize;
+           }
+         //--- return lot size
+         return(lot);
+        }
+      return(lot);
+     }
+   return(lot);
+  }
+//+------------------------------------------------------------------+
+//|  Update Trailing stop                                            |
+//+------------------------------------------------------------------+
+int  updated_existing_ticket_stop_loss(double NEW_STOP_LOSS_VALUE_FOR_OPEN_ORDER)
+  {
+   for(int j=0; j<OrdersTotal(); j++)
+     {
+      if(OrderSelect(j,SELECT_BY_POS,MODE_TRADES)==false)
+         break;
+      if(OrderSymbol()==Symbol() && OrderMagicNumber()==MAGICMA)
+        {
+         int open_ticket = get_my_open_order();
+         if(open_ticket <= 0)
+           {
+            return(-1);
+           }
+         else
+           {
+            //Print("I am updating stoploss on ticket #",open_ticket);
+            if(OrderSelect(open_ticket,SELECT_BY_TICKET) == false)
+              {
+               Print("updated_existing_ticket_stop_loss> Error in OrderSelect. Error code=",GetLastError());
+               return(-2);
+              }
+            else
+              {
+
+               double previous_stop_loss_value = OrderStopLoss();
+               //Print("existing ticket found. updating it from: ", previous_stop_loss_value," to: ", NEW_STOP_LOSS_VALUE_FOR_OPEN_ORDER);
+               if(OrderModify(OrderTicket(),OrderOpenPrice(), NEW_STOP_LOSS_VALUE_FOR_OPEN_ORDER,OrderTakeProfit(),OrderExpiration(),Blue) == true)
+                 {
+                  //Print("Order Ticket #", open_ticket," successfully updated from stop loss value of: ", previous_stop_loss_value,  " to stop loss value of: ", NEW_STOP_LOSS_VALUE_FOR_OPEN_ORDER);
+                  return(100);
+                 }
+               else
+                 {
+                  //Return true here because even though the update failed, we dont want to execute an order,
+                  //Print("Error in OrderModify. Error code=",GetLastError());
+                  return(-2);
+                 }
+               return(-1);
+              }
+            return(-1);
+           }
+         return(-1);
+        }
+      return(-1);
+     }
+   return(-1);
+  }
+/*
+//+------------------------------------------------------------------+
+//| Traditional BUY Trailing SL                                      |
+//+------------------------------------------------------------------+
+void traditionalTrailingSL_BUY()
+  {
+//--- Allow EA to handle 3 and 5 digit symbols
+   int digits_adjust=1;
+   if(Digits==3 || Digits==5)
+      digits_adjust=10;
+   double adjusted_point= Point*digits_adjust;
+
+   if(Traditional_TrailStop == true)
+     {
+      if(OrderSelect(get_my_open_order(),SELECT_BY_TICKET) == true)
+        {
+         if(get_open_order_type() == OP_BUY)
+           {
+
+            double current_SL_BUY = OrderStopLoss();
+            double trailing_stop_BUY = OrderStopLoss() + (Traditional_TrailingStop_Value *adjusted_point);
+            double Traditional_SL =(Traditional_TrailingStop_Value *adjusted_point)*2;
+
+            if(Bid - current_SL_BUY > Traditional_SL)
+              {
+               if(updated_existing_ticket_stop_loss(trailing_stop_BUY) == 100)
+                 {
+                  return;
+                 }
+              }
+           }
+        }
+     }
+  }
+  */
+//+------------------------------------------------------------------+
+//| Get Open Order                                                   |
+//+------------------------------------------------------------------+
+int get_my_open_order()
+  {
+   for(int j=0; j<OrdersTotal(); j++)
+     {
+      if(OrderSelect(j,SELECT_BY_POS,MODE_TRADES)==false)
+         break;
+      if(OrderSymbol()==Symbol() && OrderMagicNumber()==MAGICMA)
+        {
+         int total=OrdersTotal();
+         //Print("There are ",total,"open orders......");
+         if(total==0)
+            return(0);
+         for(int pos=0; pos<total; pos++)
+           {
+            if(OrderSelect(pos,SELECT_BY_POS)==false)
+              {
+               Print("get_my_open_order> OrderSelect Error: ", GetLastError());
+               continue;
+              }
+            int my_open_order_ticket = OrderTicket();
+            //Print("I am returning ticket #",my_open_order_ticket);
+            return(my_open_order_ticket);
+           }
+         return(0);
+        }
+      return(0);
+     }
+   return(0);
+  }
+//+------------------------------------------------------------------+
+//| Get open order type                                              |
+//+------------------------------------------------------------------+
+int get_open_order_type()
+  {
+   for(int j=0; j<OrdersTotal(); j++)
+     {
+      if(OrderSelect(j,SELECT_BY_POS,MODE_TRADES)==false)
+         break;
+      if(OrderSymbol()==Symbol() && OrderMagicNumber()==MAGICMA)
+        {
+         return(get_order_type_by_id(get_my_open_order()));
+        }
+      return(0);
+     }
+   return(0);
+  }
+//+------------------------------------------------------------------+
+//| Get order type by id                                             |
+//+------------------------------------------------------------------+
+int get_order_type_by_id(int order_id)
+  {
+   for(int j=0; j<OrdersTotal(); j++)
+     {
+      if(OrderSelect(j,SELECT_BY_POS,MODE_TRADES)==false)
+         break;
+      if(OrderSymbol()==Symbol() && OrderMagicNumber()==MAGICMA)
+        {
+         int order_type;
+         if(order_id<=0)
+            return(-100);
+         if(OrderSelect(order_id, SELECT_BY_TICKET)==true)
+           {
+            order_type=OrderType();
+            //Print("The order type of order id #", order_id," is: ",order_type);
+            return(order_type);
+           }
+         else
+           {
+            Print("get_order_type_by_id> OrderSelect() returned error - ",GetLastError());
+            return -1;
+           }
+         return(0);
+        }
+      return(0);
+     }
+   return(0);
+  }
+//+------------------------------------------------------------------+
+//| Check for open order conditions                                  |
+//+------------------------------------------------------------------+
+void CheckForOpen()
+  {
+   if(TradeOnSelectedDaysOfWeek())
+     {
+      if(CheckActiveHours())
+        {
+
+         double MaxdailyDrawdown = -10000000000;
+         double MaxdailyProfit = 10000000000;
+
+         if(DailyProfitFilter ==true)
+           {
+            MaxdailyDrawdown = maxDailyDrawdown;
+            MaxdailyProfit = maxDailyProfit;
+           }
+
+         if(DailyProfit()> MaxdailyDrawdown && DailyProfit() < MaxdailyProfit)
+           {
+
+
+            double no_Gaps1 = MathAbs(Close[1] - Open[0]);
+            double no_Gaps2 = MathAbs(Close[2] - Open[1]);
+            double no_Gaps3 = MathAbs(Close[3] - Open[2]);
+            double no_Gaps4 = MathAbs(Close[4] - Open[3]);
+            double no_Gaps5 = MathAbs(Close[5] - Open[4]);
+
+
+            if(no_Gaps1 < Max_Gap_Value && no_Gaps2 < Max_Gap_Value && no_Gaps3 < Max_Gap_Value && no_Gaps4 < Max_Gap_Value && no_Gaps5 < Max_Gap_Value)
+              {
+               int    res;
+
+               //--- get Moving Average
+               double EMA1 = iMA(NULL,NULL,EMA_1,0,MODE_EMA,PRICE_CLOSE,0);
+               double EMA2 = iMA(NULL,NULL,EMA_2,0,MODE_EMA,PRICE_CLOSE,0);
+               double EMA3 = iMA(NULL,NULL,EMA_3,0,MODE_EMA,PRICE_CLOSE,0);
+               double EMA4 = iMA(NULL,NULL,EMA_4,0,MODE_EMA,PRICE_CLOSE,0);
+               double EMA5 = iMA(NULL,NULL,EMA_5,0,MODE_EMA,PRICE_CLOSE,0);
+               double EMA6 = iMA(NULL,NULL,EMA_6,0,MODE_EMA,PRICE_CLOSE,0);
+
+               //--- Allow EA to handle 3 and 5 digit symbols
+               int digits_adjust=1;
+               if(Digits==3 || Digits==5)
+                  digits_adjust=10;
+               double adjusted_point= Point*digits_adjust;
+
+               double Set_Stop_Loss= 0;
+               double trailing_stop_SELL_set=0;
+               double trailing_stop_Buy_set =0;
+               if(EMA_TrailStop==true)
+                 {
+                  Set_Stop_Loss = iMA(NULL,0,EMA_TrailingStop_Value,0,MODE_EMA,PRICE_CLOSE,0);
+                  trailing_stop_SELL_set = Set_Stop_Loss + (MathAbs(Ask - Bid)* SellSpreadMultiplier);
+                  trailing_stop_Buy_set = Set_Stop_Loss - (MathAbs(Ask - Bid)*BuySpreadMultiplier);
+                 }
+
+               //--- SELL conditions
+               if(EMA5 < EMA6
+                  && EMA4 < EMA5
+                  && EMA3 < EMA4
+                  && EMA2 < EMA3
+                  && EMA1 < EMA2
+                  // && Open[0] < Ask
+                 )
+                 {
+                  res=OrderSend(Symbol(),OP_SELL,LotsOptimized(),Bid,3,trailing_stop_SELL_set,0,"",MAGICMA,0,Red);
+                  Alert(" Sell trade:",res," placed at Bid price of:",Bid);
+                  return;
+                 }
+               else
+                 {
+                  //--- BUY conditions
+                  if(EMA5  > EMA6
+                     && EMA4 > EMA5
+                     && EMA3 > EMA4
+                     && EMA2 > EMA3
+                     && EMA1 > EMA2
+                     //&& Open[0] < Ask
+                    )
+                    {
+                     res=OrderSend(Symbol(),OP_BUY,LotsOptimized(),Ask,3,trailing_stop_Buy_set,0,"",MAGICMA,0,Blue);
+                     Alert(" Buy trade:",res," placed at Ask price of:",Ask);
+                     return;
+                    }
+                 }
+              }
+           }
+        }
+     }
+  }
+//+------------------------------------------------------------------+
+//| Check for close order conditions                                 |
+//+------------------------------------------------------------------+
+void CheckForClose()
+  {
+   double EMA1 = iMA(NULL,NULL,EMA_1,0,MODE_EMA,PRICE_CLOSE,0);
+   double EMA2 = iMA(NULL,NULL,EMA_2,0,MODE_EMA,PRICE_CLOSE,0);
+
+   for(int i=0; i<OrdersTotal(); i++)
+     {
+      if(OrderSelect(i,SELECT_BY_POS,MODE_TRADES)==false)
+         break;
+      if(OrderMagicNumber()!=MAGICMA || OrderSymbol()!=Symbol())
+         continue;
+      //--- check order type
+      if(OrderType()==OP_BUY)
+        {
+         if(EMA1 < EMA2)
+           {
+            if(!OrderClose(OrderTicket(),OrderLots(),Bid,3,White))
+               Print("OrderClose error ",GetLastError());
+           }
+         break;
+        }
+      if(OrderType()==OP_SELL)
+        {
+         if(EMA1 > EMA2)
+           {
+            if(!OrderClose(OrderTicket(),OrderLots(),Ask,3,White))
+               Print("OrderClose error ",GetLastError());
+           }
+         break;
+        }
+     }
+  }
+//+------------------------------------------------------------------+
+//|Close half position BUY                                           |
+//+------------------------------------------------------------------+
+void closePosition_BUY()
+  {
+   if(ClosePositionTarget==true)
+     {
+      for(int j=0; j<OrdersTotal(); j++)
+        {
+         if(OrderSelect(j,SELECT_BY_POS,MODE_TRADES)==false)
+            break;
+         if(OrderSymbol()==Symbol() && OrderMagicNumber()==MAGICMA)
+           {
+            //--- Allow EA to handle 3 and 5 digit symbols
+            int digits_adjust=1;
+            if(Digits==3 || Digits==5)
+               digits_adjust=10;
+            double adjusted_point= Point*digits_adjust;
+
+            if(OrderSelect(get_my_open_order(),SELECT_BY_TICKET) == true)
+              {
+               if(get_open_order_type() == OP_BUY)
+                 {
+                  if((OrderOpenPrice() + (adjusted_point*closePositionTarget_Value)) <= Bid && OrderLots() >= LotsOptimized())
+                    {
+                     bool closeposition = OrderClose(get_my_open_order(),(OrderLots()*ClosePositionTargetLotSize),Bid,3,Red);
+                    }
+                 }
+              }
+            else
+              {
+               Print("Error closing your BUY position target error code...",GetLastError());
+              }
+           }
+        }
+     }
+  }
+//+------------------------------------------------------------------+
+//|Close half position SELL                                          |
+//+------------------------------------------------------------------+
+void closePosition_SELL()
+  {
+   if(ClosePositionTarget==true)
+     {
+      for(int j=0; j<OrdersTotal(); j++)
+        {
+         if(OrderSelect(j,SELECT_BY_POS,MODE_TRADES)==false)
+            break;
+         if(OrderSymbol()==Symbol() && OrderMagicNumber()==MAGICMA)
+           {
+            //--- Allow EA to handle 3 and 5 digit symbols
+            int digits_adjust=1;
+            if(Digits==3 || Digits==5)
+               digits_adjust=10;
+            double adjusted_point= Point*digits_adjust;
+
+            if(OrderSelect(get_my_open_order(),SELECT_BY_TICKET) == true)
+              {
+               if(get_open_order_type() == OP_SELL)
+                 {
+                  if((OrderOpenPrice() - (adjusted_point*closePositionTarget_Value)) >= Ask && OrderLots() >= LotsOptimized())
+                    {
+                     bool closeposition = OrderClose(get_my_open_order(),(OrderLots()*ClosePositionTargetLotSize),Ask,3,Red);
+                    }
+                 }
+              }
+            else
+              {
+               Print("Error closing your SELL position target, error code...",GetLastError());
+              }
+           }
+        }
+     }
+  }
+//+------------------------------------------------------------------+
+//| Buy EMA trailing stop modified                                   |
+//+------------------------------------------------------------------+
+void Buy_EMA_trailStop()
+  {
+   if(EMA_TrailStop == true)
+     {
+      for(int j=0; j<OrdersTotal(); j++)
+        {
+         if(OrderSelect(j,SELECT_BY_POS,MODE_TRADES)==false)
+            break;
+         if(OrderSymbol()==Symbol() && OrderMagicNumber()==MAGICMA)
+           {
+            double trail_EMA = iMA(NULL,0,EMA_TrailingStop_Value,0,MODE_EMA,PRICE_CLOSE,0);
+
+            //--- Allow EA to handle 3 and 5 digit symbols
+            int digits_adjust=1;
+            if(Digits==3 || Digits==5)
+               digits_adjust=10;
+            double adjusted_point= Point*digits_adjust;
+
+            int open_ticket = get_my_open_order();
+            if(open_ticket <= 0)
+              {
+               //Print("There are NO open BUY orders. get_my_open_order() returns", get_my_open_order());
+              }
+            else
+              {
+               if(OrderSelect(open_ticket,SELECT_BY_TICKET) == false)
+                 {
+                  //Print("updated_existing_BUY_ticket_stop_loss> Error in OrderSelect. Error code=",GetLastError());
+                 }
+               else
+                 {
+                  // Print("Order select current order open ticket is:...........................",open_ticket);
+                 }
+               if(get_open_order_type() == OP_BUY)
+                 {
+                  double current_TP_BUY = OrderStopLoss();
+                  double trailing_stop_BUY = trail_EMA - (MathAbs(Ask - Bid)* BuySpreadMultiplier);
+
+                  /* double breakEven_BUY = OrderOpenPrice() + (MathAbs(Ask - Bid)+ 5);
+                  if(current_TP_BUY >= trailing_stop_BUY4)
+                    return;
+                  */
+
+                  closePosition_BUY();
+
+                  if(current_TP_BUY < trailing_stop_BUY)
+                    {
+                     if(updated_existing_ticket_stop_loss(trailing_stop_BUY) == 100)
+                       {
+                        return;
+                       }
+                    }
+                 }
+              }
+           }
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Sell EMA trailing stop modified                                  |
+//+------------------------------------------------------------------+
+void Sell_EMA_trailStop()
+  {
+   if(EMA_TrailStop == true)
+     {
+      for(int j=0; j<OrdersTotal(); j++)
+        {
+         if(OrderSelect(j,SELECT_BY_POS,MODE_TRADES)==false)
+            break;
+         if(OrderSymbol()==Symbol() && OrderMagicNumber()==MAGICMA)
+           {
+            double trail_EMA = iMA(NULL,0,EMA_TrailingStop_Value,0,MODE_EMA,PRICE_CLOSE,0);
+
+            //--- Allow EA to handle 3 and 5 digit symbols
+            int digits_adjust=1;
+            if(Digits==3 || Digits==5)
+               digits_adjust=10;
+            double adjusted_point= Point*digits_adjust;
+
+            int open_ticket = get_my_open_order();
+            if(open_ticket <= 0)
+              {
+               //Print("There are NO open BUY orders. get_my_open_order() returns", get_my_open_order());
+              }
+            else
+              {
+               if(OrderSelect(open_ticket,SELECT_BY_TICKET) == false)
+                 {
+                  //Print("updated_existing_BUY_ticket_stop_loss> Error in OrderSelect. Error code=",GetLastError());
+                 }
+               else
+                 {
+                  // Print("Order select current order open ticket is:...........................",open_ticket);
+                 }
+               if(get_open_order_type() == OP_SELL)
+                 {
+                  double current_TP_Sell = OrderStopLoss();
+                  double trailing_stop_Sell = trail_EMA + (MathAbs(Ask - Bid)* SellSpreadMultiplier);
+
+                  /*
+                  double breakEven_BUY = OrderOpenPrice() + (MathAbs(Ask - Bid)+ 5);
+                   if(current_TP_BUY >= trailing_stop_BUY4)
+                      return;
+                   */
+
+                  closePosition_SELL();
+
+                  if(current_TP_Sell > trailing_stop_Sell)
+                    {
+                     if(updated_existing_ticket_stop_loss(trailing_stop_Sell) == 100)
+                       {
+                        //Print("Order trailing stop loss was updated BUY TP1 at:",trailing_stop_BUY);
+                        return;
+                       }
+                    }
+                 }
+              }
+           }
+        }
+     }
+  }
+//+------------------------------------------------------------------+
+//| OnTick function                                                  |
+//+------------------------------------------------------------------+
+void OnTick()
+  {
+//--- check for history and trading
+   if(Bars<100 || IsTradeAllowed()==false)
+      return;
+//--- calculate open orders by current symbol
+
+   if(Bars != ThisBarTrade)
+     {
+      ThisBarTrade = Bars;  // ensure only one trade opportunity per bar
+      if(CalculateCurrentOrders(Symbol())==0)
+         CheckForOpen();
+     }
+
+   if(CalculateCurrentOrders(Symbol())>0)
+     {
+      CheckForClose();
+     }
+
+
+   if(CalculateCurrentOrders(Symbol())>0)
+     {
+      Buy_EMA_trailStop();
+     }
+   else
+     {
+      Sell_EMA_trailStop();
+     }
+
+
+   double CheckNews=0;
+   if(NewsFilter == true)
+     {
+      if(TimeCurrent()-LastUpd>=((Upd*60)*60))
+        {
+         Comment("News Loading...");
+         Print("News Loading...");
+         UpdateNews();
+         LastUpd=TimeCurrent();
+         Comment("");
+        }
+      WindowRedraw();
+      //---Draw a line on the chart news--------------------------------------------
+      if(DrawLines)
+        {
+         for(int i=0; i<NomNews; i++)
+           {
+            string Name=StringSubstr(TimeToStr(TimeNewsFunck(i),TIME_MINUTES)+"_"+NewsArr[1][i]+"_"+NewsArr[3][i],0,63);
+            if(NewsArr[3][i]!="")
+               if(ObjectFind(Name)==0)
+                  continue;
+            if(StringFind(str1,NewsArr[1][i])<0)
+               continue;
+            if(TimeNewsFunck(i)<TimeCurrent() && Next)
+               continue;
+
+            color clrf = clrNONE;
+            if(Vhigh && StringFind(NewsArr[2][i],"High")>=0)
+               clrf=highc;
+            if(Vmedium && StringFind(NewsArr[2][i],"Moderate")>=0)
+               clrf=mediumc;
+            if(Vlow && StringFind(NewsArr[2][i],"Low")>=0)
+               clrf=lowc;
+
+            if(clrf==clrNONE)
+               continue;
+
+            if(NewsArr[3][i]!="")
+              {
+               ObjectCreate(Name,0,OBJ_VLINE,TimeNewsFunck(i),0);
+               ObjectSet(Name,OBJPROP_COLOR,clrf);
+               ObjectSet(Name,OBJPROP_STYLE,Style);
+               ObjectSetInteger(0,Name,OBJPROP_BACK,true);
+              }
+           }
+        }
+      //---------------event Processing------------------------------------
+      CheckNews=0;
+      for(i=0; i<NomNews; i++)
+        {
+         int power=0;
+         if(Vhigh && StringFind(NewsArr[2][i],"High")>=0)
+            power=1;
+         if(Vmedium && StringFind(NewsArr[2][i],"Moderate")>=0)
+            power=2;
+         if(Vlow && StringFind(NewsArr[2][i],"Low")>=0)
+            power=3;
+         if(power==0)
+            continue;
+         if(TimeCurrent()+MinBefore*60>TimeNewsFunck(i) && TimeCurrent()-MinAfter*60<TimeNewsFunck(i) && StringFind(str1,NewsArr[1][i])>=0)
+           {
+            CheckNews=1;
+            break;
+           }
+         else
+            CheckNews=0;
+        }
+
+      if(CheckNews==1 && i!=Now && Signal)
+        {
+         Alert("In ",(int)(TimeNewsFunck(i)-TimeCurrent())/60," minutes released news ",NewsArr[1][i],"_",NewsArr[3][i]);
+         Now=i;
+        }
+      /***  ***/
+     }
+
+   if(CheckNews>0)
+     {
+      if(power==1 && NewsHard == true)
+        {
+         Comment("News is high impact, we will stop searching for trading oportunities fro the next ", NewsSleepTime," minutes");
+         Sleep(60000*NewsSleepTime);
+        }
+
+      if(power==2 && NewsMedium == true)
+        {
+         Comment("News is medium impact, we will stop searching for trading oportunities fro the next ", NewsSleepTime," minutes");
+         Sleep(60000*NewsSleepTime);
+        }
+
+      if(power==3 && NewsLight == true)
+        {
+         Comment("News is light impact, we will stop searching for trading oportunities fro the next", NewsSleepTime," minutes");
+         Sleep(60000*NewsSleepTime);
+        }
+     }
+   else
+     {
+      // We are out of scope of the news release (No News)
+      if(NewsFilter == true)
+        {
+         Comment("We are out of scope of any news release, we will continue searching for trading oportunities. The daily profit is at: ",DailyProfit());
+        }
+
+     }
+  }
+
+//+------------------------------------------------------------------+
+// Download CBOE page source code in a text variable                 |
+// And returns the result                                            |
+//+------------------------------------------------------------------+
+string ReadCBOE()
+  {
+
+   string cookie=NULL,headers;
+   char post[],result[];
+   string TXT="";
+   int res;
+//--- to work with the server, you must add the URL "https://http://ec.forexprostools.com"
+//--- the list of allowed URL (Main menu-> Tools-> Settings tab "Advisors"):
+   string google_url="http://ec.forexprostools.com/?columns=exc_currency,exc_importance&importance=1,2,3&calType=week&timeZone=15&lang=1";
+//---
+   ResetLastError();
+//--- download html-pages
+   int timeout=5000; //--- timeout less than 1,000 (1 sec.) is insufficient at a low speed of the Internet
+   res=WebRequest("GET",google_url,cookie,NULL,timeout,post,0,result,headers);
+//--- error checking
+   if(res==-1)
+     {
+      Print("WebRequest error, err.code  =",GetLastError());
+      MessageBox("You must add the address ' "+google_url+"' in the list of allowed URL tab 'Advisors' "," Error ",MB_ICONINFORMATION);
+      //--- You must add the address ' "+ google url"' in the list of allowed URL tab 'Advisors' "," Error "
+     }
+   else
+     {
+      //--- successful download
+      //PrintFormat("File successfully downloaded, the file size in bytes  =%d.",ArraySize(result));
+      //--- save the data in the file
+      int filehandle=FileOpen("news-log.html",FILE_WRITE|FILE_BIN);
+      //--- ???????? ??????
+      if(filehandle!=INVALID_HANDLE)
+        {
+         //---save the contents of the array result [] in file
+         FileWriteArray(filehandle,result,0,ArraySize(result));
+         //--- close file
+         FileClose(filehandle);
+
+         int filehandle2=FileOpen("news-log.html",FILE_READ|FILE_BIN);
+         TXT=FileReadString(filehandle2,ArraySize(result));
+         FileClose(filehandle2);
+        }
+      else
+        {
+         Print("Error in FileOpen. Error code =",GetLastError());
+        }
+     }
+
+   return(TXT);
+  }
+//+------------------------------------------------------------------+
+// News date time function                                           |
+//+------------------------------------------------------------------+
+datetime TimeNewsFunck(int nomf)
+  {
+   string s=NewsArr[0][nomf];
+   string time=StringConcatenate(StringSubstr(s,0,4),".",StringSubstr(s,5,2),".",StringSubstr(s,8,2)," ",StringSubstr(s,11,2),":",StringSubstr(s,14,4));
+   return((datetime)(StringToTime(time) + offset*3600));
+  }
+//+------------------------------------------------------------------+
+// Update News function                                              |
+//+------------------------------------------------------------------+
+void UpdateNews()
+  {
+   string TEXT=ReadCBOE();
+   int sh = StringFind(TEXT,"pageStartAt>")+12;
+   int sh2= StringFind(TEXT,"</tbody>");
+   TEXT=StringSubstr(TEXT,sh,sh2-sh);
+
+   sh=0;
+   while(!IsStopped())
+     {
+      sh = StringFind(TEXT,"event_timestamp",sh)+17;
+      sh2= StringFind(TEXT,"onclick",sh)-2;
+      if(sh<17 || sh2<0)
+         break;
+      NewsArr[0][NomNews]=StringSubstr(TEXT,sh,sh2-sh);
+
+      sh = StringFind(TEXT,"flagCur",sh)+10;
+      sh2= sh+3;
+      if(sh<10 || sh2<3)
+         break;
+      NewsArr[1][NomNews]=StringSubstr(TEXT,sh,sh2-sh);
+      if(StringFind(str1,NewsArr[1][NomNews])<0)
+         continue;
+
+      sh = StringFind(TEXT,"title",sh)+7;
+      sh2= StringFind(TEXT,"Volatility",sh)-1;
+      if(sh<7 || sh2<0)
+         break;
+      NewsArr[2][NomNews]=StringSubstr(TEXT,sh,sh2-sh);
+      if(StringFind(NewsArr[2][NomNews],"High")>=0 && !Vhigh)
+         continue;
+      if(StringFind(NewsArr[2][NomNews],"Moderate")>=0 && !Vmedium)
+         continue;
+      if(StringFind(NewsArr[2][NomNews],"Low")>=0 && !Vlow)
+         continue;
+
+      sh=StringFind(TEXT,"left event",sh)+12;
+      int sh1=StringFind(TEXT,"Speaks",sh);
+      sh2=StringFind(TEXT,"<",sh);
+      if(sh<12 || sh2<0)
+         break;
+      if(sh1<0 || sh1>sh2)
+         NewsArr[3][NomNews]=StringSubstr(TEXT,sh,sh2-sh);
+      else
+         NewsArr[3][NomNews]=StringSubstr(TEXT,sh,sh1-sh);
+
+      NomNews++;
+      if(NomNews==300)
+         break;
+     }
+  }
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
